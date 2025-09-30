@@ -1,6 +1,6 @@
 // src/components/FileManager/FileManager.tsx
 import React, { useState, useEffect } from 'react';
-import './FileManager.css';
+import './fileManager.css';
 import {API_URL} from '../../api';
 
 interface FileItem {
