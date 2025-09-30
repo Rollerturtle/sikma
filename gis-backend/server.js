@@ -11,7 +11,13 @@ const XLSX = require('xlsx');
 require('dotenv').config();
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: [
+    'http://localhost:5173',  // Development lokal
+    'https://sikma-frontend-production.up.railway.app'  // Production Railway
+  ],
+  credentials: true
+}));
 app.use(express.json());
 
 let riskAnalysisCache = new Map();
