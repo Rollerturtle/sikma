@@ -1,5 +1,5 @@
 // server.js - Updated with new schema and Excel processing + REFERENCE_MAPPING
-import dotenv from "dotenv";
+
 
 const express = require('express');
 const { Client } = require('pg');
@@ -8,7 +8,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const XLSX = require('xlsx');
-dotenv.config();
+require('dotenv').config();
 
 const app = express();
 app.use(cors());
