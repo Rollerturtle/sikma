@@ -10,6 +10,7 @@ import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { DetailMapWithMultipleMarkers } from './components/detailmap/detailMap';
+import {API_URL} from './api';
 
 // Interface untuk data kejadian
 interface KejadianData {
@@ -123,7 +124,7 @@ export function DetailKejadian() {
     const fetchKejadianData = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`http://localhost:3001/api/kejadian?id=${id}`);
+        const response = await fetch(`${API_URL}/api/kejadian?id=${id}`);
         
         if (!response.ok) {
           throw new Error('Failed to fetch kejadian data');
@@ -204,7 +205,7 @@ export function DetailKejadian() {
         usingLocation: storedFilterData?.locationType === 'DAS' ? kejadianData.das : kejadianData.provinsi
       });
 
-      const response = await fetch(`http://localhost:3001/api/kejadian/yearly-stats?${params.toString()}`);
+      const response = await fetch(`${API_URL}/api/kejadian/yearly-stats?${params.toString()}`);
       if (response.ok) {
         const stats = await response.json();
         setYearlyStats(stats);
@@ -271,7 +272,7 @@ export function DetailKejadian() {
 
       console.log('Fetching kejadian for year with params:', params.toString());
 
-      const response = await fetch(`http://localhost:3001/api/kejadian?${params.toString()}`);
+      const response = await fetch(`${API_URL}/api/kejadian?${params.toString()}`);
       
       if (response.ok) {
         const yearKejadianData: KejadianMapData[] = await response.json();
@@ -369,11 +370,11 @@ export function DetailKejadian() {
   const defaultImage = 'https://via.placeholder.com/300x200?text=No+Image';
   
   // Prepare photos array with actual data
-  const photos = data.images_urls.length > 0 ? data.images_urls.map(url => `http://localhost:3001${url}`) : [defaultImage];
+  const photos = data.images_urls.length > 0 ? data.images_urls.map(url => `${API_URL}${url}`) : [defaultImage];
   
   // Add thumbnail as first image if it exists and is different from images
   if (data.thumbnail_url && !data.images_urls.includes(data.thumbnail_url)) {
-    photos.unshift(`http://localhost:3001${data.thumbnail_url}`);
+    photos.unshift(`${API_URL}${data.thumbnail_url}`);
   }
 
   const visiblePhotos = photos.slice(0, 4);

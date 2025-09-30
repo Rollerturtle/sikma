@@ -1,6 +1,7 @@
 // filter.tsx - Updated with risk-based visualization for Kerawanan
 import React, { useState, useEffect } from 'react';
 import './filter.css';
+import {API_URL} from '../../api';
 
 // Mapping dari selection ke tabel database - UPDATED
 const TABLE_MAPPING = {
@@ -96,7 +97,7 @@ export function Filter({ onFilterChange, onTabChange, onResetToMain }: FilterPro
   const loadFilterOptions = async () => {
     try {
       // Load provinces
-      const provincesResponse = await fetch('http://localhost:3001/api/filter/provinces');
+      const provincesResponse = await fetch('${API_URL}/api/filter/provinces');
       const provinces = await provincesResponse.json();
       console.log('Provinces data:', provinces);
       const provinceNames = provinces
@@ -104,7 +105,7 @@ export function Filter({ onFilterChange, onTabChange, onResetToMain }: FilterPro
         .filter((name: any) => name && typeof name === 'string'); // Filter out null/undefined
       
       // Load kabupaten/kota
-      const kabupatenResponse = await fetch('http://localhost:3001/api/filter/kabupaten');
+      const kabupatenResponse = await fetch('${API_URL}/api/filter/kabupaten');
       const kabupaten = await kabupatenResponse.json();
       console.log('Kabupaten data:', kabupaten);
       const kabupatenNames = kabupaten
@@ -112,7 +113,7 @@ export function Filter({ onFilterChange, onTabChange, onResetToMain }: FilterPro
         .filter((name: any) => name && typeof name === 'string'); // Filter out null/undefined
       
       // Load kecamatan
-      const kecamatanResponse = await fetch('http://localhost:3001/api/filter/kecamatan');
+      const kecamatanResponse = await fetch('${API_URL}/api/filter/kecamatan');
       const kecamatan = await kecamatanResponse.json();
       console.log('Kecamatan data:', kecamatan);
       const kecamatanNames = kecamatan
@@ -120,7 +121,7 @@ export function Filter({ onFilterChange, onTabChange, onResetToMain }: FilterPro
         .filter((name: any) => name && typeof name === 'string'); // Filter out null/undefined
       
       // Load DAS
-      const dasResponse = await fetch('http://localhost:3001/api/filter/das');
+      const dasResponse = await fetch('${API_URL}/api/filter/das');
       const das = await dasResponse.json();
       console.log('DAS data:', das);
       const dasNames = das

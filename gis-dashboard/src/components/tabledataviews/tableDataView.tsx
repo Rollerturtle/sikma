@@ -5,6 +5,7 @@ import './tableDataView.css';
 import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import {API_URL} from '../../api';
 
 interface KejadianItem {
   id: number;
@@ -124,7 +125,7 @@ const DraggableMarker = ({
 const triggerRiskAnalysisRefresh = async (kejadianData: KejadianItem) => {
   try {
     // Send refresh signal to risk analysis endpoint to recalculate
-    const response = await fetch('http://localhost:3001/api/risk-analysis/refresh', {
+    const response = await fetch('${API_URL}/api/risk-analysis/refresh', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -254,7 +255,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
   const fetchKejadianData = async () => {
     setLoading(true);
     try {
-      let url = 'http://localhost:3001/api/kejadian?';
+      let url = '${API_URL}/api/kejadian?';
       const params = new URLSearchParams();
 
       // Apply filter dari parent component (filter.tsx)
@@ -320,7 +321,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
         return;
       }
 
-      const response = await fetch(`http://localhost:3001/api/kejadian/${id}`, {
+      const response = await fetch(`${API_URL}/api/kejadian/${id}`, {
         method: 'DELETE'
       });
 
@@ -475,7 +476,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
 
         // Fetch provinsi
         try {
-          const provinsiResponse = await fetch('http://localhost:3001/api/filter/provinces');
+          const provinsiResponse = await fetch('${API_URL}/api/filter/provinces');
           if (provinsiResponse.ok) {
             const provinsiData = await provinsiResponse.json();
             if (Array.isArray(provinsiData) && provinsiData.length > 0) {
@@ -494,7 +495,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
 
         // Fetch kabupaten
         try {
-          const kabupatenResponse = await fetch('http://localhost:3001/api/filter/kabupaten');
+          const kabupatenResponse = await fetch('${API_URL}/api/filter/kabupaten');
           if (kabupatenResponse.ok) {
             const kabupatenData = await kabupatenResponse.json();
             if (Array.isArray(kabupatenData) && kabupatenData.length > 0) {
@@ -513,7 +514,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
 
         // Fetch kecamatan
         try {
-          const kecamatanResponse = await fetch('http://localhost:3001/api/filter/kecamatan');
+          const kecamatanResponse = await fetch('${API_URL}/api/filter/kecamatan');
           if (kecamatanResponse.ok) {
             const kecamatanData = await kecamatanResponse.json();
             if (Array.isArray(kecamatanData) && kecamatanData.length > 0) {
@@ -532,7 +533,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
 
         // Fetch kelurahan
         try {
-          const kelurahanResponse = await fetch('http://localhost:3001/api/filter/kelurahan');
+          const kelurahanResponse = await fetch('${API_URL}/api/filter/kelurahan');
           if (kelurahanResponse.ok) {
             const kelurahanData = await kelurahanResponse.json();
             if (Array.isArray(kelurahanData) && kelurahanData.length > 0) {
@@ -551,7 +552,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
 
         // Fetch DAS
         try {
-          const dasResponse = await fetch('http://localhost:3001/api/filter/das');
+          const dasResponse = await fetch('${API_URL}/api/filter/das');
           if (dasResponse.ok) {
             const dasData = await dasResponse.json();
             if (Array.isArray(dasData) && dasData.length > 0) {
@@ -769,7 +770,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
       console.log('Submitting form data...');
       
       // Submit to server
-      const response = await fetch('http://localhost:3001/api/kejadian', {
+      const response = await fetch('${API_URL}/api/kejadian', {
         method: 'POST',
         body: submitFormData,
       });
@@ -1143,7 +1144,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
               <div key={item.id} className="card-item" onClick={() => handleItemClick(item.id)}>
                 <div className="card-image-wrapper">
                   <img 
-                    src={item.thumbnail_url ? `http://localhost:3001${item.thumbnail_url}` : defaultImage} 
+                    src={item.thumbnail_url ? `${API_URL}${item.thumbnail_url}` : defaultImage} 
                     alt={item.title} 
                     className="card-image" 
                     onError={(e) => {

@@ -1,4 +1,6 @@
 // server.js - Updated with new schema and Excel processing + REFERENCE_MAPPING
+import dotenv from "dotenv";
+
 const express = require('express');
 const { Client } = require('pg');
 const cors = require('cors');
@@ -6,6 +8,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const XLSX = require('xlsx');
+dotenv.config();
 
 const app = express();
 app.use(cors());
@@ -59,11 +62,8 @@ const fileManagerUpload = multer({
 app.use('/uploads', express.static(uploadDir));
 
 const dbConfig = {
-  host: 'localhost',
-  port: 5433,
-  database: 'gis_data',
-  user: 'postgres',
-  password: '12345678'
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 };
 
 const client = new Client(dbConfig);

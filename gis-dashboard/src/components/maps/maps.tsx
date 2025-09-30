@@ -10,6 +10,7 @@ import type {
 } from 'geojson';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import {API_URL} from '../../api';
 
 // FIXED: Declare process for Node.js types
 declare const process: {
@@ -275,7 +276,7 @@ const RiskRefreshHandler = ({
               }
             });
 
-            const response = await fetch(`http://localhost:3001${riskLayer.endpoint}?${params.toString()}`);
+            const response = await fetch(`${API_URL}${riskLayer.endpoint}?${params.toString()}`);
             if (response.ok) {
               const refreshedData = await response.json();
               console.log('RiskRefreshHandler: Risk data refreshed successfully', {
@@ -736,7 +737,7 @@ export default function IndonesiaMap({
     try {
       console.log('Loading incident data for detail view:', detailData);
       
-      const url = new URL('http://localhost:3001/api/kejadian');
+      const url = new URL('${API_URL}/api/kejadian');
       
       // Filter berdasarkan jenis bencana
       if (detailData.disaster_type) {
@@ -904,7 +905,7 @@ export default function IndonesiaMap({
 
   const loadLayer = async (layerConfig: any, layerKey: string): Promise<void> => {
     try {
-      const url = new URL(`http://localhost:3001${layerConfig.endpoint}`);
+      const url = new URL(`${API_URL}${layerConfig.endpoint}`);
       
       Object.entries(layerConfig.filter).forEach(([key, value]) => {
         if (value) {
