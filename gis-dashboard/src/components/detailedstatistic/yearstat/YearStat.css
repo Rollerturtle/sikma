@@ -1,0 +1,184 @@
+@import "tailwindcss";
+.year-stat {
+  @apply inline-block;
+}
+
+/* ┌───────┐   ← harusnya miring ke kiri di sisi kanan */
+.year-stat-top {
+  @apply absolute inset-x-0 top-0 h-1/2 flex items-center justify-center
+         text-lg font-bold text-gray-800;
+  background: #f6b805;
+  /* sebelumnya ini bottom-shape, sekarang dipakai di top */
+  clip-path: polygon(20% 0%, 100% 0%, 100% 100%, 0% 100%);
+  /* ↑ slanted ke kanan atas */
+}
+
+/* └───────┘   ← harusnya miring ke kanan di sisi kiri */
+.year-stat-bottom {
+  @apply absolute inset-x-0 top-1/2 h-1/2 flex flex-col items-center justify-center
+         text-white;
+  background: #b37d06;
+  /* sebelumnya ini top-shape, sekarang dipakai di bottom */
+  clip-path: polygon(0% 0%, 100% 0%, 80% 100%, 0% 100%);
+  /* ↑ slanted ke kiri bawah */
+}
+
+.year-stat-count {
+  @apply text-2xl font-semibold;
+}
+
+.year-stat-label {
+  @apply text-sm;
+}
+
+/* src/components/yearstat/YearStat.css */
+
+.year-stat {
+  user-select: none;
+  transition: all 0.2s ease-in-out;
+  border-radius: 4px; /* Optional: for subtle border radius */
+}
+
+/* Clickable state */
+.year-stat.clickable {
+  cursor: pointer;
+}
+
+.year-stat.clickable:hover {
+  transform: translateY(-2px) scale(1.02) !important;
+  filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.15)) !important;
+}
+
+/* Active state */
+.year-stat.active {
+  transform: scale(1.08) !important;
+  filter: drop-shadow(0 6px 20px rgba(59, 130, 246, 0.4)) !important;
+  z-index: 10;
+  position: relative;
+}
+
+.year-stat.active::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  right: -4px;
+  bottom: -4px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(30, 64, 175, 0.2));
+  border-radius: 8px;
+  z-index: -1;
+  animation: activeGlow 2s ease-in-out infinite alternate;
+}
+
+@keyframes activeGlow {
+  0% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0.6;
+    transform: scale(1.02);
+  }
+}
+
+/* Disabled state */
+.year-stat.disabled {
+  cursor: not-allowed !important;
+  opacity: 0.5 !important;
+}
+
+.year-stat.disabled:hover {
+  transform: none !important;
+  filter: none !important;
+}
+
+/* Hover effects for clickable but not active items */
+.year-stat.clickable:not(.active):hover polygon {
+  filter: brightness(1.1);
+}
+
+.year-stat.clickable:not(.active):hover text {
+  filter: brightness(1.1);
+}
+
+/* Click animation */
+.year-stat.clickable:active {
+  transform: translateY(1px) scale(0.98) !important;
+  transition: all 0.1s ease !important;
+}
+
+/* Focus styles for accessibility */
+.year-stat:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .year-stat {
+    width: 100px;
+    height: 70px;
+  }
+  
+  .year-stat.active {
+    transform: scale(1.05) !important;
+  }
+  
+  .year-stat.clickable:hover {
+    transform: translateY(-1px) scale(1.01) !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .year-stat {
+    width: 90px;
+    height: 60px;
+  }
+  
+  .year-stat.active {
+    transform: scale(1.03) !important;
+  }
+}
+
+/* Loading state (optional) */
+.year-stat.loading {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.year-stat.loading polygon,
+.year-stat.loading text {
+  animation: loadingPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes loadingPulse {
+  0%, 100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .year-stat.active {
+    outline: 3px solid #000000;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .year-stat,
+  .year-stat::before,
+  .year-stat polygon,
+  .year-stat text {
+    transition: none !important;
+    animation: none !important;
+  }
+  
+  .year-stat.active::before {
+    animation: none !important;
+  }
+}

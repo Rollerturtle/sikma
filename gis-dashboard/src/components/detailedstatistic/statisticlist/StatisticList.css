@@ -1,0 +1,34 @@
+@import "tailwindcss";
+.stat-list-container {
+  @apply w-full mx-7;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  gap: 0.25rem 0.5rem;
+
+  justify-items: start;
+  align-items:  start;
+}
+
+.stat-list-image {
+  grid-column: 1;
+  grid-row:    1 / span 2;
+  @apply justify-self-start self-center;
+}
+.stat-list-image img {
+  @apply block max-w-full max-h-full;
+}
+
+.stat-list-top {
+  grid-column: 2;
+  grid-row:    1;
+  @apply flex items-baseline space-x-1;
+}
+.stat-number { @apply text-xl font-bold; }
+.stat-metric { @apply text-base font-semibold; }
+
+.stat-list-desc {
+  grid-column: 2;
+  grid-row:    2;
+  @apply text-sm text-left font-medium;
+}

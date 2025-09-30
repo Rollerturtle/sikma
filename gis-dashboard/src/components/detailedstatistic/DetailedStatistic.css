@@ -1,0 +1,41 @@
+@import "tailwindcss";
+.detailed-grid {
+  @apply grid gap-px w-full;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto auto auto;
+}
+
+.detailed-grid > * {
+  @apply bg-white;
+}
+
+.row1 {
+  @apply grid grid-cols-[2fr,3fr] border-b-7 border-blue-900;
+  
+  grid-template-columns: 1fr 3fr;
+}
+.row1-left {
+  @apply flex flex-col items-center justify-center text-center p-4;
+}
+.row1-right {
+  @apply flex items-center justify-start -space-x-7
+}
+
+.ds-title    { @apply text-xl font-bold text-blue-900; }
+.ds-subtitle { @apply text-sm font-medium text-blue-400 mt-1; }
+.ds-note     { @apply text-sm font-medium italic text-gray-400 mt-1; }
+
+.row2 {
+  @apply flex flex-col items-start justify-center p-4 bg-white;
+}
+.ds2-title    { @apply text-xl font-bold text-blue-900; }
+.ds2-subtitle { @apply text-sm font-medium text-blue-400; }
+
+.row3 {
+  @apply grid gap-px ;
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.row3 .col {
+  @apply bg-white flex flex-col justify-center items-start space-y-2 p-2;
+}

@@ -1,0 +1,73 @@
+@import "tailwindcss";
+.statistic-grid {
+
+  @apply grid gap-3;
+
+  grid-template-columns: repeat(4, 4.5rem);
+
+  grid-auto-rows: 4.5rem;
+
+}
+
+.stat-header {
+
+  @apply col-span-4 flex flex-col items-center justify-center;
+
+  height: 5.5rem;
+
+}
+
+.stat-title {
+
+  @apply text-lg font-bold text-blue-900 leading-snug;
+
+}
+
+.stat-subtitle {
+
+  @apply text-sm text-blue-400 font-medium;
+
+}
+
+.stat-big {
+
+  @apply bg-[#172951] flex flex-col items-center justify-center text-[#6ba6db] aspect-square;
+
+  grid-column: 1 / span 2;
+
+  grid-row:    2 / span 2;
+
+}
+
+.stat-big h1 {
+  @apply text-3xl font-bold;
+  color: #6ba6db;
+}
+.stat-big h2 {
+  @apply text-2xl font-semibold;
+  color: #6ba6db;
+}
+
+.stat-small {
+
+  @apply bg-[#6da9dd] flex flex-col items-center justify-center text-[#00357d] text-center aspect-square;
+
+}
+
+.stat-small .month {
+
+  @apply text-xs font-bold;
+
+}
+
+.stat-small .number {
+
+  @apply text-xs leading-none font-bold;
+
+}
+
+.stat-small .label {
+
+  @apply text-xs font-bold;
+
+}
