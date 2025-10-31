@@ -3,7 +3,6 @@ import React, { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, GeoJSON, useMap } from 'react-leaflet';
 import { useNavigate } from 'react-router-dom';
 import L from 'leaflet';
-import {API_URL} from '../../api';
 
 interface KejadianMapData {
   id: number;
@@ -202,8 +201,7 @@ const createDefaultLayers = (kejadianData: any) => {
   const disasterTypeMapping = {
     'Longsor': 'rawan_longsor',
     'Banjir': 'rawan_banjir', 
-    'Kebakaran': 'rawan_karhutla_2024',
-    'Gempa': 'rawan_gempa'
+    'Kebakaran': 'rawan_karhutla_2024'
   };
   
   const disasterTable = disasterTypeMapping[kejadianData.disaster_type];
@@ -302,7 +300,7 @@ export const DetailMapWithMultipleMarkers: React.FC<DetailMapProps> = ({
           console.log('Using fallback provinsi filter:', kejadianData.provinsi);
         }
 
-        const requestUrl = `${API_URL}/api/kejadian?${params.toString()}`;
+        const requestUrl = `http://localhost:3001/api/kejadian?${params.toString()}`;
         console.log('🌐 Fetching kejadian with URL:', requestUrl);
 
         const response = await fetch(requestUrl);
@@ -455,7 +453,7 @@ export const DetailMapWithMultipleMarkers: React.FC<DetailMapProps> = ({
               if (value) params.append(key, value as string);
             });
 
-            const url = `${API_URL}${layer.endpoint}?${params}`;
+            const url = `http://localhost:3001${layer.endpoint}?${params}`;
             console.log(`📡 Fetching default layer: ${url}`);
 
             try {
@@ -518,7 +516,7 @@ export const DetailMapWithMultipleMarkers: React.FC<DetailMapProps> = ({
             if (value) params.append(key, value as string);
           });
 
-          const url = `${API_URL}${layer.endpoint}?${params}`;
+          const url = `http://localhost:3001${layer.endpoint}?${params}`;
           console.log(`📡 Fetching stored layer: ${url}`);
 
           const debugEntry = {
@@ -723,7 +721,7 @@ export const DetailMapWithMultipleMarkers: React.FC<DetailMapProps> = ({
                 <div style={{ minWidth: '200px' }}>
                   {kejadian.thumbnail_url && (
                     <img 
-                      src={`${API_URL}${kejadian.thumbnail_url}`}
+                      src={`http://localhost:3001${kejadian.thumbnail_url}`}
                       alt={kejadian.title}
                       style={{ 
                         width: '100%', 
