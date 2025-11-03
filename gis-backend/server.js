@@ -10,22 +10,9 @@ const path = require('path');
 const fs = require('fs');
 const XLSX = require('xlsx');
 
-const allowedOrigins = [
-  'http://localhost:5173',                                    
-  'http://h0wo0g4s4ss44sg8c048404g.148.230.99.137.sslip.io/',  // ← Domain frontend Anda!
-];
-
 const app = express();
 app.use(cors({
-  origin: function(origin, callback) {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log('❌ CORS blocked:', origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: true,  // Allow semua origin
   credentials: true
 }));
 app.use(express.json());
