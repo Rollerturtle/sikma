@@ -1,7 +1,7 @@
 // src/components/ShpManagement.tsx - Placeholder Version (Table Only)
 import React, { useState, useEffect } from 'react';
 import { API_URL } from '../../api';
-import './ShpManagement.css';
+import './shpmanagement.css';
 
 interface TableInfo {
   nama_table: string;
