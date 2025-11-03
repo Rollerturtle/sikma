@@ -17,7 +17,7 @@ interface FileManagerProps {
   ultraCompact?: boolean; // New prop for ultra compact mode
 }
 
-const API_BASE_URL = '${API_URL}'; // Ganti sesuai URL backend Anda
+const API_BASE_URL = `${API_URL}`; // Ganti sesuai URL backend Anda
 
 const FileManager: React.FC<FileManagerProps> = ({ 
   className = '', 

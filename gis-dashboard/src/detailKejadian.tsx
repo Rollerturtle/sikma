@@ -11,7 +11,7 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { DetailMapWithMultipleMarkers } from './components/detailmap/detailMap';
 import StatisticList from './components/detailedstatistic/statisticlist/StatisticList';
-import {API_URL} from './api';
+import { API_URL } from './api';
 
 // Interface untuk data kejadian
 interface KejadianData {

@@ -60,7 +60,7 @@ export default function DetailedStatistic({ filterData, onYearSelect, selectedYe
         setLoadingImpact(true);
 
         try {
-          const url = new URL('${API_URL}/api/kejadian/impact-stats');
+          const url = new URL(`${API_URL}/api/kejadian/impact-stats`);
           url.searchParams.append('disaster_type', filterData.disasterType);
           url.searchParams.append('year', String(selectedYear));
           
@@ -131,7 +131,7 @@ useEffect(() => {
 
       try {
         // Build query parameters
-        const url = new URL('${API_URL}/api/kejadian/year-stats');
+        const url = new URL(`${API_URL}/api/kejadian/year-stats`);
         url.searchParams.append('disaster_type', filterData.disasterType);
         
         // Add location filter based on location type

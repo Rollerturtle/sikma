@@ -71,7 +71,7 @@ export default function Statistic({ filterData, selectedYear }: StatisticProps) 
 
       try {
         // Build query parameters
-        const url = new URL('${API_URL}/api/kejadian/monthly-stats');
+        const url = new URL(`${API_URL}/api/kejadian/monthly-stats`);
         url.searchParams.append('disaster_type', filterData.disasterType);
         url.searchParams.append('year', String(selectedYear));
         

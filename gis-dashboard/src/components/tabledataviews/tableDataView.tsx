@@ -125,7 +125,7 @@ const DraggableMarker = ({
 const triggerRiskAnalysisRefresh = async (kejadianData: KejadianItem) => {
   try {
     // Send refresh signal to risk analysis endpoint to recalculate
-    const response = await fetch('${API_URL}/api/risk-analysis/refresh', {
+    const response = await fetch(`${API_URL}/api/risk-analysis/refresh`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -255,7 +255,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
   const fetchKejadianData = async () => {
     setLoading(true);
     try {
-      let url = '${API_URL}/api/kejadian?';
+      let url = `${API_URL}/api/kejadian?`;
       const params = new URLSearchParams();
 
       // Apply filter dari parent component (filter.tsx)
@@ -476,7 +476,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
 
         // Fetch provinsi
         try {
-          const provinsiResponse = await fetch('${API_URL}/api/filter/provinces');
+          const provinsiResponse = await fetch(`${API_URL}/api/filter/provinces`);
           if (provinsiResponse.ok) {
             const provinsiData = await provinsiResponse.json();
             if (Array.isArray(provinsiData) && provinsiData.length > 0) {
@@ -495,7 +495,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
 
         // Fetch kabupaten
         try {
-          const kabupatenResponse = await fetch('${API_URL}/api/filter/kabupaten');
+          const kabupatenResponse = await fetch(`${API_URL}/api/filter/kabupaten`);
           if (kabupatenResponse.ok) {
             const kabupatenData = await kabupatenResponse.json();
             if (Array.isArray(kabupatenData) && kabupatenData.length > 0) {
@@ -514,7 +514,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
 
         // Fetch kecamatan
         try {
-          const kecamatanResponse = await fetch('${API_URL}/api/filter/kecamatan');
+          const kecamatanResponse = await fetch(`${API_URL}/api/filter/kecamatan`);
           if (kecamatanResponse.ok) {
             const kecamatanData = await kecamatanResponse.json();
             if (Array.isArray(kecamatanData) && kecamatanData.length > 0) {
@@ -533,7 +533,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
 
         // Fetch kelurahan
         try {
-          const kelurahanResponse = await fetch('${API_URL}/api/filter/kelurahan');
+          const kelurahanResponse = await fetch(`${API_URL}/api/filter/kelurahan`);
           if (kelurahanResponse.ok) {
             const kelurahanData = await kelurahanResponse.json();
             if (Array.isArray(kelurahanData) && kelurahanData.length > 0) {
@@ -552,7 +552,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
 
         // Fetch DAS
         try {
-          const dasResponse = await fetch('${API_URL}/api/filter/das');
+          const dasResponse = await fetch(`${API_URL}/api/filter/das`);
           if (dasResponse.ok) {
             const dasData = await dasResponse.json();
             if (Array.isArray(dasData) && dasData.length > 0) {
@@ -770,7 +770,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
       console.log('Submitting form data...');
       
       // Submit to server
-      const response = await fetch('${API_URL}/api/kejadian', {
+      const response = await fetch(`${API_URL}/api/kejadian`, {
         method: 'POST',
         body: submitFormData,
       });

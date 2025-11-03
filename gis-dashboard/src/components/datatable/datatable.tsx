@@ -44,7 +44,7 @@ const DataTable: React.FC = () => {
   // Fetch rekomendasi data on mount
   const fetchRekomendasi = async () => {
     try {
-      const res = await fetch('${API_URL}/api/rekomendasi');
+      const res = await fetch(`${API_URL}/api/rekomendasi`);
       if (!res.ok) {  // ✅ Tambahkan pengecekan response
         throw new Error(`HTTP error! status: ${res.status}`);
       }
@@ -64,28 +64,28 @@ const DataTable: React.FC = () => {
   useEffect(() => {
     const loadFilterOptions = async () => {
       try {
-        const provincesResponse = await fetch('${API_URL}/api/filter/provinces');
+        const provincesResponse = await fetch(`${API_URL}/api/filter/provinces`);
         const provincesData = await provincesResponse.json();
         const provinceNames = provincesData
           .map((p: any) => p.provinsi)
           .filter((name: any) => name && typeof name === 'string');
         setProvinces(provinceNames);
 
-        const kabupatenResponse = await fetch('${API_URL}/api/filter/kabupaten');
+        const kabupatenResponse = await fetch(`${API_URL}/api/filter/kabupaten`);
         const kabupatenData = await kabupatenResponse.json();
         const kabupatenNames = kabupatenData
           .map((k: any) => k.kab_kota)
           .filter((name: any) => name && typeof name === 'string');
         setKabupaten(kabupatenNames);
 
-        const kecamatanResponse = await fetch('${API_URL}/api/filter/kecamatan');
+        const kecamatanResponse = await fetch(`${API_URL}/api/filter/kecamatan`);
         const kecamatanData = await kecamatanResponse.json();
         const kecamatanNames = kecamatanData
           .map((k: any) => k.kecamatan)
           .filter((name: any) => name && typeof name === 'string');
         setKecamatan(kecamatanNames);
 
-        const dasResponse = await fetch('${API_URL}/api/filter/das');
+        const dasResponse = await fetch(`${API_URL}/api/filter/das`);
         const dasData = await dasResponse.json();
         const dasNames = dasData
           .map((d: any) => d.nama_das)
@@ -177,7 +177,7 @@ const DataTable: React.FC = () => {
     try {
       let response;
       if (id <= 0) {
-        response = await fetch('${API_URL}/api/rekomendasi', {
+        response = await fetch(`${API_URL}/api/rekomendasi`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)

@@ -108,7 +108,7 @@ const ActivityModal: React.FC<ActivityModalProps> = ({
     try {
       let response;
       if (mode === 'create') {
-        response = await fetch('${API_URL}/api/kegiatan-mitigasi', {
+        response = await fetch(`${API_URL}/api/kegiatan-mitigasi`, {
           method: 'POST',
           body: formDataToSend
         });

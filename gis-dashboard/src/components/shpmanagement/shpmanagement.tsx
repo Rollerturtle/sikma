@@ -79,7 +79,7 @@ export default function ShpManagement({ onViewChange, onFilterChange }: ShpManag
     try {
 
       setLoading(true);
-      const response = await fetch('${API_URL}/api/tables-info');
+      const response = await fetch(`${API_URL}/api/tables-info`);
 
       if (!response.ok) {
         throw new Error('Failed to fetch tables information');

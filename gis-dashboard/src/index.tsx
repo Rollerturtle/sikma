@@ -46,7 +46,7 @@ function DetailKerawananPhotos({ detailView }: any) {
           selectedArea: detailView.selectedArea
         });
         
-        const url = new URL('${API_URL}/api/kejadian-photos-by-location');
+        const url = new URL(`${API_URL}/api/kejadian-photos-by-location`);
         url.searchParams.append('disaster_type', detailView.disaster_type);
         url.searchParams.append('level', levelParam);
         url.searchParams.append('location_name', locationParam);

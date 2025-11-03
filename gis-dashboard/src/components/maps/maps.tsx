@@ -652,7 +652,7 @@ export default function IndonesiaMap({
       }
 
       try {
-        const url = new URL('${API_URL}/api/risk-analysis');
+        const url = new URL(`${API_URL}/api/risk-analysis`);
         url.searchParams.append('disaster_type', filterData.disasterType);
         
         if (filterData.locationType === 'Provinsi') {
@@ -720,7 +720,7 @@ export default function IndonesiaMap({
       }
 
       try {
-        const url = new URL('${API_URL}/api/kejadian/by-year');
+        const url = new URL(`${API_URL}/api/kejadian/by-year`);
         url.searchParams.append('disaster_type', filterData.disasterType);
         url.searchParams.append('year', String(selectedYear));
         
@@ -879,7 +879,7 @@ export default function IndonesiaMap({
   //   try {
   //     console.log('Loading incident data for detail view:', detailData);
       
-  //     const url = new URL('${API_URL}/api/kejadian');
+  //     const url = new URL(`${API_URL}/api/kejadian`);
       
   //     // Filter berdasarkan jenis bencana
   //     if (detailData.disaster_type) {
@@ -990,7 +990,7 @@ export default function IndonesiaMap({
     try {
       console.log('Loading incident data for detail view:', detailData);
       
-      const url = new URL('${API_URL}/api/kejadian');
+      const url = new URL(`${API_URL}/api/kejadian`);
       
       // Filter berdasarkan jenis bencana
       if (detailData.disaster_type) {
