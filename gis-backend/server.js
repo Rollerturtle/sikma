@@ -1,6 +1,5 @@
 // server.js - Updated with new schema and Excel processing + REFERENCE_MAPPING
-import dotenv from 'dotenv';
-dotenv.config();
+require('dotenv').config();
 
 const PORT = process.env.PORT || 3001;
 const express = require('express');
