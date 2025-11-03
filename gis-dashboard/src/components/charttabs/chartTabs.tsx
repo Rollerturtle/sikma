@@ -13,6 +13,7 @@ import {
   Legend,
 } from 'chart.js';
 import { Line, Bar, Doughnut } from 'react-chartjs-2';
+import { API_URL } from '../../api';
 
 // Register Chart.js components
 ChartJS.register(
@@ -435,7 +436,7 @@ const ChartTabsComponent: React.FC<ChartTabsComponentProps> = ({
           if (kerawananFilters.kelurahan) params.append('kelurahan', kerawananFilters.kelurahan);
           if (kerawananFilters.das) params.append('das', kerawananFilters.das);
           
-          const response = await fetch(`http://localhost:3001/api/kerawanan/chart-data?${params}`);
+          const response = await fetch(`${API_URL}/api/kerawanan/chart-data?${params}`);
           const result = await response.json();
 
           if (result.success) {
@@ -480,7 +481,7 @@ const ChartTabsComponent: React.FC<ChartTabsComponentProps> = ({
 
       try {
         setLoading(true);
-        const response = await fetch(`http://localhost:3001/api/kejadian/${kejadianId}/chart-data`);
+        const response = await fetch(`${API_URL}/api/kejadian/${kejadianId}/chart-data`);
         const result = await response.json();
 
         if (result.success) {

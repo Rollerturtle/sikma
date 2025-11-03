@@ -1,6 +1,7 @@
 // Enhanced maps component with FIXED TypeScript errors and Z-index issues
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { MapContainer, GeoJSON, TileLayer, useMap, Marker, Popup } from 'react-leaflet';
+import { API_URL } from '../../api';
 import type {
   GeoJsonObject,
   FeatureCollection,
@@ -275,7 +276,7 @@ const RiskRefreshHandler = ({
               }
             });
 
-            const response = await fetch(`http://localhost:3001${riskLayer.endpoint}?${params.toString()}`);
+            const response = await fetch(`${API_URL}${riskLayer.endpoint}?${params.toString()}`);
             if (response.ok) {
               const refreshedData = await response.json();
               console.log('RiskRefreshHandler: Risk data refreshed successfully', {
@@ -651,7 +652,7 @@ export default function IndonesiaMap({
       }
 
       try {
-        const url = new URL('http://localhost:3001/api/risk-analysis');
+        const url = new URL('${API_URL}/api/risk-analysis');
         url.searchParams.append('disaster_type', filterData.disasterType);
         
         if (filterData.locationType === 'Provinsi') {
@@ -719,7 +720,7 @@ export default function IndonesiaMap({
       }
 
       try {
-        const url = new URL('http://localhost:3001/api/kejadian/by-year');
+        const url = new URL('${API_URL}/api/kejadian/by-year');
         url.searchParams.append('disaster_type', filterData.disasterType);
         url.searchParams.append('year', String(selectedYear));
         
@@ -878,7 +879,7 @@ export default function IndonesiaMap({
   //   try {
   //     console.log('Loading incident data for detail view:', detailData);
       
-  //     const url = new URL('http://localhost:3001/api/kejadian');
+  //     const url = new URL('${API_URL}/api/kejadian');
       
   //     // Filter berdasarkan jenis bencana
   //     if (detailData.disaster_type) {
@@ -989,7 +990,7 @@ export default function IndonesiaMap({
     try {
       console.log('Loading incident data for detail view:', detailData);
       
-      const url = new URL('http://localhost:3001/api/kejadian');
+      const url = new URL('${API_URL}/api/kejadian');
       
       // Filter berdasarkan jenis bencana
       if (detailData.disaster_type) {
@@ -1177,7 +1178,7 @@ export default function IndonesiaMap({
 
    const loadLayer = async (layerConfig: any, layerKey: string): Promise<void> => {
     try {
-      const url = new URL(`http://localhost:3001${layerConfig.endpoint}`);
+      const url = new URL(`${API_URL}${layerConfig.endpoint}`);
       
       Object.entries(layerConfig.filter).forEach(([key, value]) => {
         if (value) {
@@ -1252,7 +1253,7 @@ export default function IndonesiaMap({
       console.log(`🎨 Fetching incident counts for coloring: ${disasterType}, ${level}, ${year}`);
       
       const response = await fetch(
-        `http://localhost:3001/api/incident-counts?disaster_type=${encodeURIComponent(disasterType)}&level=${encodeURIComponent(level)}&year=${year}`
+        `${API_URL}/api/incident-counts?disaster_type=${encodeURIComponent(disasterType)}&level=${encodeURIComponent(level)}&year=${year}`
       );
       
       if (!response.ok) {

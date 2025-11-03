@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { API_URL } from '../../api';
 import './filter.css';
 import { 
   ArrowRight, 
@@ -180,7 +181,7 @@ function DirectUploadNewTableModal({
       xhr.addEventListener('error', () => {
         setStatusMessage('Terjadi kesalahan saat upload');
       });
-      xhr.open('POST', 'http://localhost:3001/api/shp/create-table-and-upload');
+      xhr.open('POST', '${API_URL}/api/shp/create-table-and-upload');
       xhr.send(formData);
     } catch (error) {
       console.error('Upload error:', error);
@@ -340,7 +341,7 @@ function SimplifyNewTableModal({
         setIsUploading(false);
       });
 
-      xhr.open('POST', 'http://localhost:3001/api/shp/create-table-and-simplify');
+      xhr.open('POST', '${API_URL}/api/shp/create-table-and-simplify');
       xhr.send(formData);
 
     } catch (error) {
@@ -626,7 +627,7 @@ function ShpUploadWorkflowModal({
       }
 
       try {
-        const response = await fetch(`http://localhost:3001/api/table-columns/${selectedTable}`);
+        const response = await fetch(`${API_URL}/api/table-columns/${selectedTable}`);
         const columns = await response.json();
         setDbColumns(columns);
       } catch (error) {
@@ -1124,7 +1125,7 @@ function SimplificationContent({
         fileCount: fullShpFiles.length
       });
 
-      const response = await fetch('http://localhost:3001/api/shp/simplify', {
+      const response = await fetch('${API_URL}/api/shp/simplify', {
         method: 'POST',
         body: formData
       });
@@ -1520,7 +1521,7 @@ function DirectUploadProgressModal({
       xhr.addEventListener('error', () => {
         setStatusMessage('Terjadi kesalahan saat upload');
       });
-      xhr.open('POST', 'http://localhost:3001/api/shp/upload-direct');
+      xhr.open('POST', '${API_URL}/api/shp/upload-direct');
       xhr.send(formData);
     } catch (error) {
       console.error('Upload error:', error);
@@ -1691,7 +1692,7 @@ function UploadProgressModal({
         setStatusMessage('Terjadi kesalahan saat upload');
       });
 
-      xhr.open('POST', 'http://localhost:3001/api/shp/upload-to-db');
+      xhr.open('POST', '${API_URL}/api/shp/upload-to-db');
       xhr.send(formData);
 
     } catch (error) {
@@ -2347,7 +2348,7 @@ export function Filter({ onFilterChange, onTabChange, onResetToMain, onMapCountC
       try {
         if (activeTab === 'Kerawanan') {
           // Fetch years from location tables
-          const response = await fetch('http://localhost:3001/api/available-years/location');
+          const response = await fetch('${API_URL}/api/available-years/location');
           if (response.ok) {
             const data = await response.json();
             const levelKey = activeLocationLevel.toLowerCase().replace('/', '_');
@@ -2371,7 +2372,7 @@ export function Filter({ onFilterChange, onTabChange, onResetToMain, onMapCountC
           
           const tableName = disasterTableMap[selectedDisaster];
           if (tableName) {
-            const response = await fetch(`http://localhost:3001/api/available-years/disaster/${tableName}`);
+            const response = await fetch(`${API_URL}/api/available-years/disaster/${tableName}`);
             if (response.ok) {
               const years = await response.json();
               setYearOptions(years);
@@ -2415,10 +2416,10 @@ export function Filter({ onFilterChange, onTabChange, onResetToMain, onMapCountC
         
         if (activeTab === 'Kerawanan') {
           // Exact year match
-          url = `http://localhost:3001/api/locations/${level}?year=${selectedYear}`;
+          url = `${API_URL}/api/locations/${level}?year=${selectedYear}`;
         } else if (activeTab === 'Kebencanaan' || activeTab === 'Mitigasi/Adaptasi') {
           // PERBAIKAN: Max year logic - hanya ambil yang tahun_data sama dengan selectedYear atau terdekat di bawahnya
-          url = `http://localhost:3001/api/locations/${level}/max-year?maxYear=${selectedYear}`;
+          url = `${API_URL}/api/locations/${level}/max-year?maxYear=${selectedYear}`;
         } else {
           return;
         }
@@ -2506,7 +2507,7 @@ export function Filter({ onFilterChange, onTabChange, onResetToMain, onMapCountC
   const fetchTables = async () => {
     try {
       console.log('🔄 Fetching tables...');
-      const response = await fetch('http://localhost:3001/api/tables-list');
+      const response = await fetch('${API_URL}/api/tables-list');
       console.log('📡 Response status:', response.status);
       
       const tables = await response.json();
@@ -2546,25 +2547,25 @@ export function Filter({ onFilterChange, onTabChange, onResetToMain, onMapCountC
 
   // const loadFilterOptions = async () => {
   //   try {
-  //     const provincesResponse = await fetch('http://localhost:3001/api/filter/provinces');
+  //     const provincesResponse = await fetch('${API_URL}/api/filter/provinces');
   //     const provinces = await provincesResponse.json();
   //     const provinceNames = provinces
   //       .map((p: any) => p.provinsi)
   //       .filter((name: any) => name && typeof name === 'string');
 
-  //     const kabupatenResponse = await fetch('http://localhost:3001/api/filter/kabupaten');
+  //     const kabupatenResponse = await fetch('${API_URL}/api/filter/kabupaten');
   //     const kabupaten = await kabupatenResponse.json();
   //     const kabupatenNames = kabupaten
   //       .map((k: any) => k.kab_kota)
   //       .filter((name: any) => name && typeof name === 'string');
 
-  //     const kecamatanResponse = await fetch('http://localhost:3001/api/filter/kecamatan');
+  //     const kecamatanResponse = await fetch('${API_URL}/api/filter/kecamatan');
   //     const kecamatan = await kecamatanResponse.json();
   //     const kecamatanNames = kecamatan
   //       .map((k: any) => k.kecamatan)
   //       .filter((name: any) => name && typeof name === 'string');
 
-  //     const dasResponse = await fetch('http://localhost:3001/api/filter/das');
+  //     const dasResponse = await fetch('${API_URL}/api/filter/das');
   //     const das = await dasResponse.json();
   //     const dasNames = das
   //       .map((d: any) => d.nama_das)
@@ -2598,25 +2599,25 @@ export function Filter({ onFilterChange, onTabChange, onResetToMain, onMapCountC
     
     // Fallback: load semua data tanpa year filter (untuk initial state)
     try {
-      const provincesResponse = await fetch('http://localhost:3001/api/filter/provinces');
+      const provincesResponse = await fetch('${API_URL}/api/filter/provinces');
       const provinces = await provincesResponse.json();
       const provinceNames = provinces
         .map((p: any) => p.provinsi)
         .filter((name: any) => name && typeof name === 'string');
 
-      const kabupatenResponse = await fetch('http://localhost:3001/api/filter/kabupaten');
+      const kabupatenResponse = await fetch('${API_URL}/api/filter/kabupaten');
       const kabupaten = await kabupatenResponse.json();
       const kabupatenNames = kabupaten
         .map((k: any) => k.kab_kota)
         .filter((name: any) => name && typeof name === 'string');
 
-      const kecamatanResponse = await fetch('http://localhost:3001/api/filter/kecamatan');
+      const kecamatanResponse = await fetch('${API_URL}/api/filter/kecamatan');
       const kecamatan = await kecamatanResponse.json();
       const kecamatanNames = kecamatan
         .map((k: any) => k.kecamatan)
         .filter((name: any) => name && typeof name === 'string');
 
-      const dasResponse = await fetch('http://localhost:3001/api/filter/das');
+      const dasResponse = await fetch('${API_URL}/api/filter/das');
       const das = await dasResponse.json();
       const dasNames = das
         .map((d: any) => d.nama_das)
@@ -3428,7 +3429,7 @@ export function Filter({ onFilterChange, onTabChange, onResetToMain, onMapCountC
         if (!level) return selectedYear;
         
         // Fetch available years for location table
-        const response = await fetch('http://localhost:3001/api/available-years/location');
+        const response = await fetch('${API_URL}/api/available-years/location');
         if (!response.ok) return selectedYear;
         
         const data = await response.json();
@@ -3698,7 +3699,7 @@ export function Filter({ onFilterChange, onTabChange, onResetToMain, onMapCountC
   //       formData.append('dbfFile', dbfFile);
   //     }
       
-  //     const response = await fetch('http://localhost:3001/api/shp/parse-dbf', {
+  //     const response = await fetch('${API_URL}/api/shp/parse-dbf', {
   //       method: 'POST',
   //       body: formData
   //     });
@@ -3778,7 +3779,7 @@ export function Filter({ onFilterChange, onTabChange, onResetToMain, onMapCountC
         formData.append('dbfFile', dbfFile);
       }
       
-      const response = await fetch('http://localhost:3001/api/shp/parse-dbf', {
+      const response = await fetch('${API_URL}/api/shp/parse-dbf', {
         method: 'POST',
         body: formData
       });
@@ -3813,7 +3814,7 @@ export function Filter({ onFilterChange, onTabChange, onResetToMain, onMapCountC
     try {
       console.log('🗑️ Cleaning up uploaded files:', uploadedTempFiles);
       
-      const response = await fetch('http://localhost:3001/api/cleanup-temp-files', {
+      const response = await fetch('${API_URL}/api/cleanup-temp-files', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

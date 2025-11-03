@@ -1,7 +1,7 @@
 // src/pages/ActivityDetailPage.tsx
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-
+import { API_URL } from '../../api';
 const ActivityDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -14,7 +14,7 @@ const ActivityDetailPage: React.FC = () => {
   useEffect(() => {
     const fetchActivity = async () => {
       try {
-        const res = await fetch(`http://localhost:3001/api/kegiatan-mitigasi/${id}`);
+        const res = await fetch(`${API_URL}/api/kegiatan-mitigasi/${id}`);
         if (!res.ok) {
           throw new Error('Gagal memuat data');
         }
@@ -119,7 +119,7 @@ const ActivityDetailPage: React.FC = () => {
         <div className="flex-[2] relative">
           <div className="relative rounded-lg shadow-md overflow-hidden">
             <img
-              src={`http://localhost:3001${petaMaps[currentMapIndex].url}`}
+              src={`${API_URL}${petaMaps[currentMapIndex].url}`}
               alt={petaMaps[currentMapIndex].label}
               className="w-full h-[650px] object-cover"
             />
@@ -154,7 +154,7 @@ const ActivityDetailPage: React.FC = () => {
               onClick={() => handlePhotoClick(idx)}
             >
               <img
-                src={`http://localhost:3001${photo}`}
+                src={`${API_URL}${photo}`}
                 alt={`Foto ${idx + 1}`}
                 className="w-full h-full object-cover transition-transform hover:scale-110"
               />
@@ -196,7 +196,7 @@ const ActivityDetailPage: React.FC = () => {
                 <svg className="w-5 h-5 text-blue-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                <a href={`http://localhost:3001${url}`} target="_blank" rel="noopener noreferrer" className="flex-1 text-blue-600 font-medium hover:underline">
+                <a href={`${API_URL}${url}`} target="_blank" rel="noopener noreferrer" className="flex-1 text-blue-600 font-medium hover:underline">
                   {url.split('/').pop()}
                 </a>
                 <span className="text-xs text-gray-500">Dokumen {idx + 1}</span>
@@ -221,7 +221,7 @@ const ActivityDetailPage: React.FC = () => {
             <button onClick={() => setIsPhotoModalOpen(false)} className="absolute -top-12 right-0 text-white text-3xl font-bold">✕</button>
             
             <img
-              src={`http://localhost:3001${activity.foto_dokumentasi[currentPhotoIndex]}`}
+              src={`${API_URL}${activity.foto_dokumentasi[currentPhotoIndex]}`}
               alt={`Foto ${currentPhotoIndex + 1}`}
               className="max-w-[600px] max-h-[400px] w-full h-full object-contain rounded-lg"
             />
@@ -233,7 +233,7 @@ const ActivityDetailPage: React.FC = () => {
               {activity.foto_dokumentasi.map((photo: string, idx: number) => (
                 <img
                   key={idx}
-                  src={`http://localhost:3001${photo}`}
+                  src={`${API_URL}${photo}`}
                   alt={`Thumbnail ${idx + 1}`}
                   onClick={() => setCurrentPhotoIndex(idx)}
                   className={`w-20 h-20 object-cover rounded cursor-pointer ${idx === currentPhotoIndex ? 'border-2 border-blue-500 opacity-100' : 'border-2 border-transparent opacity-60'}`}

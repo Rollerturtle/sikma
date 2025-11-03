@@ -9,7 +9,7 @@ import ChartTabsComponent from './components/charttabs/chartTabs';
 import FileManager from './components/filemanager/fileManager';
 import ShpManagement from './components/shpmanagement/shpmanagement';
 import DataTable from './components/datatable/datatable';
-
+import { API_URL } from './api';
 
 function DetailKerawananPhotos({ detailView }: any) {
   const [photos, setPhotos] = useState<string[]>([]);
@@ -46,7 +46,7 @@ function DetailKerawananPhotos({ detailView }: any) {
           selectedArea: detailView.selectedArea
         });
         
-        const url = new URL('http://localhost:3001/api/kejadian-photos-by-location');
+        const url = new URL('${API_URL}/api/kejadian-photos-by-location');
         url.searchParams.append('disaster_type', detailView.disaster_type);
         url.searchParams.append('level', levelParam);
         url.searchParams.append('location_name', locationParam);
@@ -129,13 +129,12 @@ function DetailKerawananPhotos({ detailView }: any) {
 
   const defaultImage = 'https://via.placeholder.com/300x200?text=No+Image';
   const photoUrls = photos.map(path => {
-    // Pastikan path dimulai dengan http://localhost:3001
     if (path.startsWith('http://') || path.startsWith('https://')) {
       return path;
     } else if (path.startsWith('/uploads/')) {
-      return `http://localhost:3001${path}`;
+      return `${API_URL}${path}`;
     } else {
-      return `http://localhost:3001/uploads/${path}`;
+      return `${API_URL}/uploads/${path}`;
     }
   });
   

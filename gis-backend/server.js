@@ -1,4 +1,8 @@
 // server.js - Updated with new schema and Excel processing + REFERENCE_MAPPING
+import dotenv from 'dotenv';
+dotenv.config();
+
+const PORT = process.env.PORT || 3001;
 const express = require('express');
 const { Client, Pool } = require('pg');
 const cors = require('cors');
@@ -58,12 +62,17 @@ const fileManagerUpload = multer({
 // Serve uploaded files statically
 app.use('/uploads', express.static(uploadDir));
 
+// const dbConfig = {
+//   host: 'localhost',
+//   port: 5433,
+//   database: 'gis_data',
+//   user: 'postgres',
+//   password: '12345678'
+// };
+
 const dbConfig = {
-  host: 'localhost',
-  port: 5433,
-  database: 'gis_data',
-  user: 'postgres',
-  password: '12345678'
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 };
 
 const client = new Client(dbConfig);
@@ -8690,9 +8699,6 @@ app.get('/api/kejadian-photos-by-location', async (req, res) => {
   }
 });
 
-
-
-const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });

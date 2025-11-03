@@ -1,5 +1,6 @@
 // src/components/ShpManagement.tsx - Placeholder Version (Table Only)
 import React, { useState, useEffect } from 'react';
+import { API_URL } from '../../api';
 import './ShpManagement.css';
 
 interface TableInfo {
@@ -78,7 +79,7 @@ export default function ShpManagement({ onViewChange, onFilterChange }: ShpManag
     try {
 
       setLoading(true);
-      const response = await fetch('http://localhost:3001/api/tables-info');
+      const response = await fetch('${API_URL}/api/tables-info');
 
       if (!response.ok) {
         throw new Error('Failed to fetch tables information');
@@ -155,7 +156,7 @@ export default function ShpManagement({ onViewChange, onFilterChange }: ShpManag
 
   try {
     const response = await fetch(
-      `http://localhost:3001/api/shp-layers/${deleteTarget.table}/year/${deleteTarget.year}`,
+      `${API_URL}/api/shp-layers/${deleteTarget.table}/year/${deleteTarget.year}`,
       {
         method: 'DELETE'
       }

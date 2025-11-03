@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ActivityModal from './activitymodal';
 import SearchableDropdown from './searchabledropdown';
+import { API_URL } from '../../api';
 
 interface RowData {
   id: number;
@@ -43,7 +44,7 @@ const DataTable: React.FC = () => {
   // Fetch rekomendasi data on mount
   const fetchRekomendasi = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/rekomendasi');
+      const res = await fetch('${API_URL}/api/rekomendasi');
       if (!res.ok) {  // ✅ Tambahkan pengecekan response
         throw new Error(`HTTP error! status: ${res.status}`);
       }
@@ -63,28 +64,28 @@ const DataTable: React.FC = () => {
   useEffect(() => {
     const loadFilterOptions = async () => {
       try {
-        const provincesResponse = await fetch('http://localhost:3001/api/filter/provinces');
+        const provincesResponse = await fetch('${API_URL}/api/filter/provinces');
         const provincesData = await provincesResponse.json();
         const provinceNames = provincesData
           .map((p: any) => p.provinsi)
           .filter((name: any) => name && typeof name === 'string');
         setProvinces(provinceNames);
 
-        const kabupatenResponse = await fetch('http://localhost:3001/api/filter/kabupaten');
+        const kabupatenResponse = await fetch('${API_URL}/api/filter/kabupaten');
         const kabupatenData = await kabupatenResponse.json();
         const kabupatenNames = kabupatenData
           .map((k: any) => k.kab_kota)
           .filter((name: any) => name && typeof name === 'string');
         setKabupaten(kabupatenNames);
 
-        const kecamatanResponse = await fetch('http://localhost:3001/api/filter/kecamatan');
+        const kecamatanResponse = await fetch('${API_URL}/api/filter/kecamatan');
         const kecamatanData = await kecamatanResponse.json();
         const kecamatanNames = kecamatanData
           .map((k: any) => k.kecamatan)
           .filter((name: any) => name && typeof name === 'string');
         setKecamatan(kecamatanNames);
 
-        const dasResponse = await fetch('http://localhost:3001/api/filter/das');
+        const dasResponse = await fetch('${API_URL}/api/filter/das');
         const dasData = await dasResponse.json();
         const dasNames = dasData
           .map((d: any) => d.nama_das)
@@ -144,7 +145,7 @@ const DataTable: React.FC = () => {
   const deleteRow = async (id: number) => {
     if (!window.confirm("Hapus rekomendasi ini?")) return;
     try {
-      await fetch(`http://localhost:3001/api/rekomendasi/${id}`, { method: 'DELETE' });
+      await fetch(`${API_URL}/api/rekomendasi/${id}`, { method: 'DELETE' });
       setData(data.filter(row => row.id !== id));
     } catch (err) {
       alert('Gagal menghapus rekomendasi');
@@ -176,7 +177,7 @@ const DataTable: React.FC = () => {
     try {
       let response;
       if (id <= 0) {
-        response = await fetch('http://localhost:3001/api/rekomendasi', {
+        response = await fetch('${API_URL}/api/rekomendasi', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -184,7 +185,7 @@ const DataTable: React.FC = () => {
         const newRec = await response.json();
         setData(data.map(r => r.id === id ? { ...newRec, has_kegiatan: false } : r));
       } else {
-        response = await fetch(`http://localhost:3001/api/rekomendasi/${id}`, {
+        response = await fetch(`${API_URL}/api/rekomendasi/${id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -218,7 +219,7 @@ const DataTable: React.FC = () => {
 
   const handleEditKegiatan = async (rekomendasiId: number, kegiatanId: number) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/kegiatan-mitigasi/${kegiatanId}`);
+      const response = await fetch(`${API_URL}/api/kegiatan-mitigasi/${kegiatanId}`);
       if (!response.ok) {
         throw new Error('Gagal memuat data kegiatan');
       }
@@ -241,7 +242,7 @@ const DataTable: React.FC = () => {
     if (!confirm('Apakah Anda yakin ingin menghapus kegiatan ini?')) return;
     
     try {
-      const response = await fetch(`http://localhost:3001/api/kegiatan-mitigasi/${kegiatanId}`, { 
+      const response = await fetch(`${API_URL}/api/kegiatan-mitigasi/${kegiatanId}`, { 
         method: 'DELETE' 
       });
       

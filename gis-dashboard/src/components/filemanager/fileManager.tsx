@@ -1,5 +1,6 @@
 // src/components/FileManager/FileManager.tsx
 import React, { useState, useEffect } from 'react';
+import { API_URL } from '../../api';
 import './FileManager.css';
 
 interface FileItem {
@@ -16,7 +17,7 @@ interface FileManagerProps {
   ultraCompact?: boolean; // New prop for ultra compact mode
 }
 
-const API_BASE_URL = 'http://localhost:3001'; // Ganti sesuai URL backend Anda
+const API_BASE_URL = '${API_URL}'; // Ganti sesuai URL backend Anda
 
 const FileManager: React.FC<FileManagerProps> = ({ 
   className = '', 

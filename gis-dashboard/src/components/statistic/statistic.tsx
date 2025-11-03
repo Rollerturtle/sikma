@@ -1,4 +1,5 @@
 import React, {useState, useEffect} from 'react';
+import { API_URL } from '../../api';
 import './statistic.css';
 
 interface StatisticProps {
@@ -70,7 +71,7 @@ export default function Statistic({ filterData, selectedYear }: StatisticProps) 
 
       try {
         // Build query parameters
-        const url = new URL('http://localhost:3001/api/kejadian/monthly-stats');
+        const url = new URL('${API_URL}/api/kejadian/monthly-stats');
         url.searchParams.append('disaster_type', filterData.disasterType);
         url.searchParams.append('year', String(selectedYear));
         

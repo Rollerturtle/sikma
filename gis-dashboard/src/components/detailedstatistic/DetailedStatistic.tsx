@@ -2,6 +2,7 @@ import {useState, useEffect} from 'react';
 import './DetailedStatistic.css';
 import StatisticList from './statisticlist/StatisticList';
 import YearStat from './yearstat/YearStat';
+import { API_URL } from '../../api';
 
 interface DetailedStatisticProps {
   filterData?: any;
@@ -59,7 +60,7 @@ export default function DetailedStatistic({ filterData, onYearSelect, selectedYe
         setLoadingImpact(true);
 
         try {
-          const url = new URL('http://localhost:3001/api/kejadian/impact-stats');
+          const url = new URL('${API_URL}/api/kejadian/impact-stats');
           url.searchParams.append('disaster_type', filterData.disasterType);
           url.searchParams.append('year', String(selectedYear));
           
@@ -130,7 +131,7 @@ useEffect(() => {
 
       try {
         // Build query parameters
-        const url = new URL('http://localhost:3001/api/kejadian/year-stats');
+        const url = new URL('${API_URL}/api/kejadian/year-stats');
         url.searchParams.append('disaster_type', filterData.disasterType);
         
         // Add location filter based on location type

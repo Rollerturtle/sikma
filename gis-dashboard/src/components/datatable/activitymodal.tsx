@@ -1,6 +1,6 @@
 // src/components/datatable/ActivityModal.tsx
 import React, { useState, useEffect } from 'react';
-
+import { API_URL } from '../../api';
 interface ActivityModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -108,13 +108,13 @@ const ActivityModal: React.FC<ActivityModalProps> = ({
     try {
       let response;
       if (mode === 'create') {
-        response = await fetch('http://localhost:3001/api/kegiatan-mitigasi', {
+        response = await fetch('${API_URL}/api/kegiatan-mitigasi', {
           method: 'POST',
           body: formDataToSend
         });
       } else {
         const kegiatanId = existingActivity?.id;
-        response = await fetch(`http://localhost:3001/api/kegiatan-mitigasi/${kegiatanId}`, {
+        response = await fetch(`${API_URL}/api/kegiatan-mitigasi/${kegiatanId}`, {
           method: 'PUT',
           body: formDataToSend
         });
