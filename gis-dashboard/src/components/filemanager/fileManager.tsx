@@ -1,7 +1,7 @@
 // src/components/FileManager/FileManager.tsx
 import React, { useState, useEffect } from 'react';
 import { API_URL } from '../../api';
-import './FileManager.css';
+import './fileManager.css';
 
 interface FileItem {
   id: string; // Nama file internal (misalnya, nama file yang disimpan di server)
