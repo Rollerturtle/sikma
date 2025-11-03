@@ -555,21 +555,21 @@ export function DetailKejadian() {
                   {/* Col 1 */}
                   <div className="col">
                     <StatisticList
-                      image="/public/images/death.png"
+                      image="/images/death.png"
                       imageSize={50}
                       number={data.korban_meninggal || 0}
                       metric="Jiwa"
                       description="Hilang / /n Meninggal Dunia"
                     />
                     <StatisticList
-                      image="/public/images/person.png"
+                      image="/images/person.png"
                       imageSize={50}
                       number={data.korban_luka_luka || 0}
                       metric="Jiwa"
                       description="Luka-luka"
                     />
                     <StatisticList
-                      image="/public/images/family.png"
+                      image="/images/family.png"
                       imageSize={50}
                       number={data.korban_mengungsi || 0}
                       metric="Jiwa"
@@ -579,28 +579,28 @@ export function DetailKejadian() {
                   {/* Col 2 */}
                   <div className="col">
                     <StatisticList
-                      image="/public/images/house-lighter-pink.png"
+                      image="/images/house-lighter-pink.png"
                       imageSize={50}
                       number={data.rumah_rusak_ringan || 0}
                       metric="Unit"
                       description="Rumah Rusak Ringan"
                     />
                     <StatisticList
-                      image="/public/images/house-pink.png"
+                      image="/images/house-pink.png"
                       imageSize={50}
                       number={data.rumah_rusak_sedang || 0}
                       metric="Unit"
                       description="Rumah Rusak Sedang"
                     />
                     <StatisticList
-                      image="/public/images/house-red.png"
+                      image="/images/house-red.png"
                       imageSize={50}
                       number={data.rumah_rusak_berat || 0}
                       metric="Unit"
                       description="Rumah Rusak Berat"
                     />
                     <StatisticList
-                      image="/public/images/house-drowned.png"
+                      image="/images/house-drowned.png"
                       imageSize={50}
                       number={data.rumah_rusak_terendam || 0}
                       metric="Unit"
@@ -610,7 +610,7 @@ export function DetailKejadian() {
                   {/* Col 3 */}
                   <div className="col">
                     <StatisticList
-                      image="/public/images/bridge.png"
+                      image="/images/bridge.png"
                       imageSize={90}
                       number={
                         (data.infrastruktur_rusak_ringan || 0) + 
@@ -625,14 +625,14 @@ export function DetailKejadian() {
                   {/* Col 4 */}
                   <div className="col">
                    <StatisticList
-                      image="/public/images/facilities.png"
+                      image="/images/facilities.png"
                       imageSize={70}
                       number={2}
                       metric="Unit"
                       description="Fasilitas Umum/ /n Sosial Rusak"
                     />
                     <StatisticList
-                      image="/public/images/book.png"
+                      image="/images/book.png"
                       imageSize={70}
                       number={2}
                       metric="Unit"
@@ -642,21 +642,21 @@ export function DetailKejadian() {
                   {/* Col 5 */}
                   <div className="col">
                     <StatisticList
-                      image="/public/images/cow.png"
+                      image="/images/cow.png"
                       imageSize={60}
                       number={"-"}
                       metric=""
                       description="Ternak Mati"
                     />
                     <StatisticList
-                      image="/public/images/bush.png"
+                      image="/images/bush.png"
                       imageSize={70}
                       number={2}
                       metric="Unit"
                       description="Lahan Rusak"
                     />
                     <StatisticList
-                      image="/public/images/trees.png"
+                      image="/images/trees.png"
                       imageSize={70}
                       number={data.luas_lokasi_kejadian || 0}
                       metric="km²"

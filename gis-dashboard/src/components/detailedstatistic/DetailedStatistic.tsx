@@ -239,21 +239,21 @@ useEffect(() => {
         {/* Col 1 */}
         <div className="col">
           <StatisticList
-            image="/public/images/death.png"
+            image="/images/death.png"
             imageSize={50}
             number={isImpactDataAvailable ? impactStats.total_meninggal : '-'}
             metric="Jiwa"
             description="Hilang / /n Meninggal Dunia"
           />
           <StatisticList
-            image="/public/images/person.png"
+            image="/images/person.png"
             imageSize={50}
             number={isImpactDataAvailable ? impactStats.total_luka : '-'}
             metric="Jiwa"
             description="Luka-luka"
           />
           <StatisticList
-            image="/public/images/family.png"
+            image="/images/family.png"
             imageSize={50}
             number={isImpactDataAvailable ? impactStats.total_mengungsi : '-'}
             metric="Jiwa"
@@ -263,28 +263,28 @@ useEffect(() => {
         {/* Col 2 */}
         <div className="col">
           <StatisticList
-            image="/public/images/house-lighter-pink.png"
+            image="/images/house-lighter-pink.png"
             imageSize={50}
             number={isImpactDataAvailable ? impactStats.total_rusak_ringan : '-'}
             metric="Unit"
             description="Rumah Rusak Ringan"
           />
           <StatisticList
-            image="/public/images/house-pink.png"
+            image="/images/house-pink.png"
             imageSize={50}
             number={isImpactDataAvailable ? impactStats.total_rusak_sedang : '-'}
             metric="Unit"
             description="Rumah Rusak Sedang"
           />
           <StatisticList
-            image="/public/images/house-red.png"
+            image="/images/house-red.png"
             imageSize={50}
             number={isImpactDataAvailable ? impactStats.total_rusak_berat : '-'}
             metric="Unit"
             description="Rumah Rusak Berat"
           />
           <StatisticList
-            image="/public/images/house-drowned.png"
+            image="/images/house-drowned.png"
             imageSize={50}
             number={isImpactDataAvailable ? impactStats.total_terendam : '-'}
             metric="Unit"
@@ -294,7 +294,7 @@ useEffect(() => {
         {/* Col 3 */}
         <div className="col">
           <StatisticList
-            image="/public/images/bridge.png"
+            image="/images/bridge.png"
             imageSize={90}
             number={isImpactDataAvailable ? (impactStats.total_infra_ringan + impactStats.total_infra_sedang + impactStats.total_infra_berat) : '-'}
             metric="Unit"
@@ -307,14 +307,14 @@ useEffect(() => {
         {/* Col 4 */}
         <div className="col">
          <StatisticList
-            image="/public/images/facilities.png"
+            image="/images/facilities.png"
             imageSize={70}
             number={2}
             metric="Unit"
             description="Fasilitas Umum/ /n Sosial Rusak"
           />
           <StatisticList
-            image="/public/images/book.png"
+            image="/images/book.png"
             imageSize={70}
             number={2}
             metric="Unit"
@@ -324,21 +324,21 @@ useEffect(() => {
         {/* Col 5 */}
         <div className="col">
           <StatisticList
-            image="/public/images/cow.png"
+            image="/images/cow.png"
             imageSize={60}
             number={"-"}
             metric=""
             description="Ternak Mati"
           />
           <StatisticList
-            image="/public/images/bush.png"
+            image="/images/bush.png"
             imageSize={70}
             number={2}
             metric="Unit"
             description="Lahan Rusak"
           />
           <StatisticList
-            image="/public/images/trees.png"
+            image="/images/trees.png"
             imageSize={70}
             number={2}
             metric="Unit"
