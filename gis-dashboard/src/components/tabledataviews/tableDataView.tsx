@@ -5,7 +5,6 @@ import './tableDataView.css';
 import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import {API_URL} from '../../api';
 
 interface KejadianItem {
   id: number;
@@ -15,7 +14,7 @@ interface KejadianItem {
   kecamatan?: string;
   kelurahan?: string;
   das?: string;
-  disaster_type: 'Banjir' | 'Longsor' | 'Gempa' | 'Kebakaran';
+  disaster_type: 'Banjir' | 'Longsor' | 'Kebakaran';
   incident_date: string;
   thumbnail_url: string | null;
   description: string;
@@ -125,7 +124,7 @@ const DraggableMarker = ({
 const triggerRiskAnalysisRefresh = async (kejadianData: KejadianItem) => {
   try {
     // Send refresh signal to risk analysis endpoint to recalculate
-    const response = await fetch('${API_URL}/api/risk-analysis/refresh', {
+    const response = await fetch('http://localhost:3001/api/risk-analysis/refresh', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -255,7 +254,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
   const fetchKejadianData = async () => {
     setLoading(true);
     try {
-      let url = '${API_URL}/api/kejadian?';
+      let url = 'http://localhost:3001/api/kejadian?';
       const params = new URLSearchParams();
 
       // Apply filter dari parent component (filter.tsx)
@@ -321,7 +320,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
         return;
       }
 
-      const response = await fetch(`${API_URL}/api/kejadian/${id}`, {
+      const response = await fetch(`http://localhost:3001/api/kejadian/${id}`, {
         method: 'DELETE'
       });
 
@@ -476,7 +475,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
 
         // Fetch provinsi
         try {
-          const provinsiResponse = await fetch('${API_URL}/api/filter/provinces');
+          const provinsiResponse = await fetch('http://localhost:3001/api/filter/provinces');
           if (provinsiResponse.ok) {
             const provinsiData = await provinsiResponse.json();
             if (Array.isArray(provinsiData) && provinsiData.length > 0) {
@@ -495,7 +494,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
 
         // Fetch kabupaten
         try {
-          const kabupatenResponse = await fetch('${API_URL}/api/filter/kabupaten');
+          const kabupatenResponse = await fetch('http://localhost:3001/api/filter/kabupaten');
           if (kabupatenResponse.ok) {
             const kabupatenData = await kabupatenResponse.json();
             if (Array.isArray(kabupatenData) && kabupatenData.length > 0) {
@@ -514,7 +513,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
 
         // Fetch kecamatan
         try {
-          const kecamatanResponse = await fetch('${API_URL}/api/filter/kecamatan');
+          const kecamatanResponse = await fetch('http://localhost:3001/api/filter/kecamatan');
           if (kecamatanResponse.ok) {
             const kecamatanData = await kecamatanResponse.json();
             if (Array.isArray(kecamatanData) && kecamatanData.length > 0) {
@@ -533,7 +532,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
 
         // Fetch kelurahan
         try {
-          const kelurahanResponse = await fetch('${API_URL}/api/filter/kelurahan');
+          const kelurahanResponse = await fetch('http://localhost:3001/api/filter/kelurahan');
           if (kelurahanResponse.ok) {
             const kelurahanData = await kelurahanResponse.json();
             if (Array.isArray(kelurahanData) && kelurahanData.length > 0) {
@@ -552,7 +551,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
 
         // Fetch DAS
         try {
-          const dasResponse = await fetch('${API_URL}/api/filter/das');
+          const dasResponse = await fetch('http://localhost:3001/api/filter/das');
           if (dasResponse.ok) {
             const dasData = await dasResponse.json();
             if (Array.isArray(dasData) && dasData.length > 0) {
@@ -770,7 +769,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
       console.log('Submitting form data...');
       
       // Submit to server
-      const response = await fetch('${API_URL}/api/kejadian', {
+      const response = await fetch('http://localhost:3001/api/kejadian', {
         method: 'POST',
         body: submitFormData,
       });
@@ -1144,7 +1143,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
               <div key={item.id} className="card-item" onClick={() => handleItemClick(item.id)}>
                 <div className="card-image-wrapper">
                   <img 
-                    src={item.thumbnail_url ? `${API_URL}${item.thumbnail_url}` : defaultImage} 
+                    src={item.thumbnail_url ? `http://localhost:3001${item.thumbnail_url}` : defaultImage} 
                     alt={item.title} 
                     className="card-image" 
                     onError={(e) => {
@@ -1822,7 +1821,6 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
                       <option value="">Pilih Jenis Bencana</option>
                       <option value="Banjir">Banjir</option>
                       <option value="Longsor">Longsor</option>
-                      <option value="Gempa">Gempa</option>
                       <option value="Kebakaran">Kebakaran</option>
                     </select>
                   </div>
@@ -1878,7 +1876,7 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
 
             {/* Upload File Data */}
             <div className="form-group">
-              <label htmlFor="dataFiles">Upload File Data Excel</label>
+              {/* <label htmlFor="dataFiles">Upload File Data Excel</label>
               <div className="upload-container file-upload" onClick={() => document.getElementById('dataFiles')?.click()}>
                 <input
                   type="file"
@@ -1903,7 +1901,93 @@ export function TableDataView({ filterData,onRiskAnalysisUpdate}: TableDataViewP
                   <span className="upload-hint">Format: Excel (.xls, .xlsx) - Max 10MB per file<br/>
                   Data seperti: Curah Hujan, Korban, Kerusakan, dll.</span>
                 </div>
-              </div>
+              </div> */}
+
+              <label htmlFor="dataFiles">Upload File Data Excel</label>
+                <div className="upload-container file-upload" onClick={() => document.getElementById('dataFiles')?.click()}>
+                  <input
+                    type="file"
+                    id="dataFiles"
+                    name="dataFiles"
+                    accept=".xls,.xlsx"
+                    multiple
+                    onChange={handleDataFilesChange}
+                    className="upload-input"
+                    style={{ display: 'none' }}
+                  />
+                  
+                  <div className="upload-placeholder">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                      <polyline points="14 2 14 8 20 8"></polyline>
+                      <line x1="16" y1="13" x2="8" y2="13"></line>
+                      <line x1="16" y1="17" x2="8" y2="17"></line>
+                      <polyline points="10 9 9 9 8 9"></polyline>
+                    </svg>
+                    <p>Upload File Data Excel</p>
+                    <span className="upload-hint">Format: Excel (.xls, .xlsx) - Max 10MB per file<br/>
+                    Data seperti: Curah Hujan, Korban, Kerusakan, dll.</span>
+                  </div>
+                </div>
+
+                {formData.dataFiles.length > 0 && (
+                  <div className="file-list">
+                    {formData.dataFiles.map((file, index) => (
+                      <div key={index} className="file-item">
+                        <span>{file.name}</span>
+                        <button 
+                          type="button" 
+                          onClick={() => {
+                            const newFiles = [...formData.dataFiles];
+                            newFiles.splice(index, 1);
+                            setFormData(prev => ({ ...prev, dataFiles: newFiles }));
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                
+                {/* Info helper berdasarkan jenis bencana */}
+                {formData.disasterType && (
+                  <div style={{ 
+                    marginTop: '8px', 
+                    padding: '8px 12px', 
+                    backgroundColor: '#eff6ff', 
+                    border: '1px solid #3b82f6', 
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    color: '#1e40af'
+                  }}>
+                    <strong>💡 Template untuk {formData.disasterType}:</strong>
+                    <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                      <li>Data Korban (wajib)</li>
+                      {formData.disasterType === 'Banjir' && (
+                        <>
+                          <li>Curah Hujan (per jam)</li>
+                          <li>Status DAS, Tutupan DAS</li>
+                          <li>Kemiringan Lahan, Kepadatan Pemukiman</li>
+                        </>
+                      )}
+                      {formData.disasterType === 'Kebakaran' && (
+                        <>
+                          <li>Status DAS, Tutupan DAS</li>
+                          <li>Kemiringan Lahan, Kepadatan Pemukiman</li>
+                        </>
+                      )}
+                      {formData.disasterType === 'Longsor' && (
+                        <>
+                          <li>Curah Hujan (30 hari), Kemiringan Lereng</li>
+                          <li>Topografi, Geologi, Jenis Tanah</li>
+                          <li>Patahan, Tutupan Lahan, Infrastruktur</li>
+                          <li>Kepadatan Pemukiman</li>
+                        </>
+                      )}
+                    </ul>
+                  </div>
+                )}
 
               {/* Data Files List */}
               {formData.dataFiles && formData.dataFiles.length > 0 && (

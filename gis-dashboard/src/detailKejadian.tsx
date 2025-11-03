@@ -10,7 +10,7 @@ import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { DetailMapWithMultipleMarkers } from './components/detailmap/detailMap';
-import {API_URL} from './api';
+import StatisticList from './components/detailedstatistic/statisticlist/StatisticList';
 
 // Interface untuk data kejadian
 interface KejadianData {
@@ -27,6 +27,19 @@ interface KejadianData {
   thumbnail_url: string | null;
   images_urls: string[];
   created_at: string;
+
+  korban_meninggal: number;
+  korban_luka_luka: number;
+  korban_mengungsi: number;
+  rumah_rusak_berat: number;
+  rumah_rusak_sedang: number;
+  rumah_rusak_ringan: number;
+  rumah_rusak_terendam: number;
+  infrastruktur_rusak_berat: number;
+  infrastruktur_rusak_sedang: number;
+  infrastruktur_rusak_ringan: number;
+  dampak_kebakaran: string;
+  luas_lokasi_kejadian: number;
 }
 
 // Interface untuk kejadian map data (sesuai dengan yang digunakan di map)
@@ -124,7 +137,7 @@ export function DetailKejadian() {
     const fetchKejadianData = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`${API_URL}/api/kejadian?id=${id}`);
+        const response = await fetch(`http://localhost:3001/api/kejadian?id=${id}`);
         
         if (!response.ok) {
           throw new Error('Failed to fetch kejadian data');
@@ -205,7 +218,7 @@ export function DetailKejadian() {
         usingLocation: storedFilterData?.locationType === 'DAS' ? kejadianData.das : kejadianData.provinsi
       });
 
-      const response = await fetch(`${API_URL}/api/kejadian/yearly-stats?${params.toString()}`);
+      const response = await fetch(`http://localhost:3001/api/kejadian/yearly-stats?${params.toString()}`);
       if (response.ok) {
         const stats = await response.json();
         setYearlyStats(stats);
@@ -272,7 +285,7 @@ export function DetailKejadian() {
 
       console.log('Fetching kejadian for year with params:', params.toString());
 
-      const response = await fetch(`${API_URL}/api/kejadian?${params.toString()}`);
+      const response = await fetch(`http://localhost:3001/api/kejadian?${params.toString()}`);
       
       if (response.ok) {
         const yearKejadianData: KejadianMapData[] = await response.json();
@@ -370,11 +383,11 @@ export function DetailKejadian() {
   const defaultImage = 'https://via.placeholder.com/300x200?text=No+Image';
   
   // Prepare photos array with actual data
-  const photos = data.images_urls.length > 0 ? data.images_urls.map(url => `${API_URL}${url}`) : [defaultImage];
+  const photos = data.images_urls.length > 0 ? data.images_urls.map(url => `http://localhost:3001${url}`) : [defaultImage];
   
   // Add thumbnail as first image if it exists and is different from images
   if (data.thumbnail_url && !data.images_urls.includes(data.thumbnail_url)) {
-    photos.unshift(`${API_URL}${data.thumbnail_url}`);
+    photos.unshift(`http://localhost:3001${data.thumbnail_url}`);
   }
 
   const visiblePhotos = photos.slice(0, 4);
@@ -530,16 +543,138 @@ export function DetailKejadian() {
               )}
             </div>
           </div>
+          {/* Row 2 */}
+                <div className="row2">
+                  <h2 className="ds2-title">Data Dampak Kejadian Bencana</h2>
+                  <h3 className="ds2-subtitle">Rincian Dampak Kejadian Bencana</h3>
+                </div>
+          
+                {/* Row 3*/}
+                <div className="row3">
+                  {/* Col 1 */}
+                  <div className="col">
+                    <StatisticList
+                      image="/public/images/death.png"
+                      imageSize={50}
+                      number={data.korban_meninggal || 0}
+                      metric="Jiwa"
+                      description="Hilang / /n Meninggal Dunia"
+                    />
+                    <StatisticList
+                      image="/public/images/person.png"
+                      imageSize={50}
+                      number={data.korban_luka_luka || 0}
+                      metric="Jiwa"
+                      description="Luka-luka"
+                    />
+                    <StatisticList
+                      image="/public/images/family.png"
+                      imageSize={50}
+                      number={data.korban_mengungsi || 0}
+                      metric="Jiwa"
+                      description="Menderita dan /n Terdampak bencana"
+                    />
+                  </div>
+                  {/* Col 2 */}
+                  <div className="col">
+                    <StatisticList
+                      image="/public/images/house-lighter-pink.png"
+                      imageSize={50}
+                      number={data.rumah_rusak_ringan || 0}
+                      metric="Unit"
+                      description="Rumah Rusak Ringan"
+                    />
+                    <StatisticList
+                      image="/public/images/house-pink.png"
+                      imageSize={50}
+                      number={data.rumah_rusak_sedang || 0}
+                      metric="Unit"
+                      description="Rumah Rusak Sedang"
+                    />
+                    <StatisticList
+                      image="/public/images/house-red.png"
+                      imageSize={50}
+                      number={data.rumah_rusak_berat || 0}
+                      metric="Unit"
+                      description="Rumah Rusak Berat"
+                    />
+                    <StatisticList
+                      image="/public/images/house-drowned.png"
+                      imageSize={50}
+                      number={data.rumah_rusak_terendam || 0}
+                      metric="Unit"
+                      description="Rumah Tergenang"
+                    />
+                  </div>
+                  {/* Col 3 */}
+                  <div className="col">
+                    <StatisticList
+                      image="/public/images/bridge.png"
+                      imageSize={90}
+                      number={
+                        (data.infrastruktur_rusak_ringan || 0) + 
+                        (data.infrastruktur_rusak_sedang || 0) + 
+                        (data.infrastruktur_rusak_berat || 0)
+                      }
+                      metric="Unit"
+                      description={`Infrastruktur Rusak sbb:\n- ${data.infrastruktur_rusak_ringan || 0} Unit Rusak Ringan\n- ${data.infrastruktur_rusak_sedang || 0} Unit Rusak Sedang\n- ${data.infrastruktur_rusak_berat || 0} Unit Rusak Berat\nmeliputi: Jalan, Jembatan maupun plengsengan/TPT.`}
+          
+                    />
+                  </div>
+                  {/* Col 4 */}
+                  <div className="col">
+                   <StatisticList
+                      image="/public/images/facilities.png"
+                      imageSize={70}
+                      number={2}
+                      metric="Unit"
+                      description="Fasilitas Umum/ /n Sosial Rusak"
+                    />
+                    <StatisticList
+                      image="/public/images/book.png"
+                      imageSize={70}
+                      number={2}
+                      metric="Unit"
+                      description="Fasilitas Pendidikan/n Rusak"
+                    />
+                  </div>
+                  {/* Col 5 */}
+                  <div className="col">
+                    <StatisticList
+                      image="/public/images/cow.png"
+                      imageSize={60}
+                      number={"-"}
+                      metric=""
+                      description="Ternak Mati"
+                    />
+                    <StatisticList
+                      image="/public/images/bush.png"
+                      imageSize={70}
+                      number={2}
+                      metric="Unit"
+                      description="Lahan Rusak"
+                    />
+                    <StatisticList
+                      image="/public/images/trees.png"
+                      imageSize={70}
+                      number={data.luas_lokasi_kejadian || 0}
+                      metric="km²"
+                      description="Luas Lokasi Kejadian"
+                    />
+                  </div>
+                </div>
         </div>
       )}
 
       {/* REPLACED: Chart Tabs Section - Using ChartTabsComponent */}
       <ChartTabsComponent 
-        filterData={{
-          category: data.disaster_type,
-          disasterType: data.report_type,
-          selectedValue: `${data.provinsi}${data.das && data.das.trim() !== '' ? ` - DAS ${data.das}` : ''}`
-        }}
+        disasterType={
+          data.disaster_type.toLowerCase() === 'kebakaran' ? 'kebakaran' :
+          data.disaster_type.toLowerCase() === 'longsor' ? 'longsor' :
+          data.disaster_type.toLowerCase() === 'banjir' ? 'banjir' :
+          'kebakaran'
+        }
+        kejadianId={data.id}
         className="mt-6"
         isInMockup={false}
       />
