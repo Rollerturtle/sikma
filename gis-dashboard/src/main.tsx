@@ -8,14 +8,21 @@ import Mockup from './index.tsx';
 import DetailKejadian from './detailKejadian.tsx';
 import ActivityDetailPage from './components/datatable/activitydetailpage.tsx';
 import 'flowbite';
+import Kerawanan from './kerawanan.tsx';
+import Kebencanaan from './kejadian.tsx';
+import DetailKejadianBencana from './detailkejadianbencana.tsx';
 
 createRoot(document.getElementById('root')!).render(
 
     <Router>
       <Routes>
+        <Route path="/kerawanan" element={<Kerawanan />} />
+        <Route path="/kebencanaan" element={<Kebencanaan />} />
+        <Route path="/detailkejadian" element={<DetailKejadianBencana />} />
+
         <Route path="/" element={<Mockup />} />
-        <Route path="/detail-kejadian/:id" element={<DetailKejadian />} />
-        <Route path="/activity/detail/:id" element={<ActivityDetailPage />} />
+        {/* <Route path="/detail-kejadian/:id" element={<DetailKejadian />} />
+        <Route path="/activity/detail/:id" element={<ActivityDetailPage />} /> */}
       </Routes>
     </Router>
 );
