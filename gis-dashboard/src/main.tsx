@@ -11,6 +11,7 @@ import 'flowbite';
 import Kerawanan from './kerawanan.tsx';
 import Kebencanaan from './kejadian.tsx';
 import DetailKejadianBencana from './detailkejadianbencana.tsx';
+import AdminLogin from './adminlogin.tsx';
 
 createRoot(document.getElementById('root')!).render(
 
@@ -19,6 +20,7 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/kerawanan" element={<Kerawanan />} />
         <Route path="/kebencanaan" element={<Kebencanaan />} />
         <Route path="/detailkejadian" element={<DetailKejadianBencana />} />
+        <Route path="/administrator-sign-in" element={<AdminLogin />} />
 
         <Route path="/" element={<Mockup />} />
         {/* <Route path="/detail-kejadian/:id" element={<DetailKejadian />} />

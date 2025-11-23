@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { API_URL } from './api';
 
 const Kebencanaan = () => {
   const mapRef = useRef(null);
@@ -23,6 +24,397 @@ const Kebencanaan = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [showItemsPerPageDropdown, setShowItemsPerPageDropdown] = useState(false);
+  const [incidents, setIncidents] = useState([]);
+  const [isLoadingIncidents, setIsLoadingIncidents] = useState(true);
+
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  // Form data untuk modal tambah kejadian
+  const [formData, setFormData] = useState({
+    thumbnail: null,
+    thumbnailPreview: null,
+    images: [],
+    title: '',
+    description: '',
+    incidentDate: '',
+    lokasi: '',
+    disasterType: '',
+    das: '',
+    longitude: '',
+    latitude: '',
+    featured: true  // TAMBAHAN: default true
+  });
+
+  const reverseGeocode = async (lat, lon) => {
+    if (!lat || !lon) return;
+    
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1&accept-language=id`,
+        {
+          headers: {
+            'User-Agent': 'KejadianBencanaApp/1.0'
+          }
+        }
+      );
+      const data = await response.json();
+      
+      if (data.address) {
+        const village = data.address.village || data.address.suburb || '';
+        const district = data.address.county || '';
+        const city = data.address.city || data.address.town || data.address.city_district || '';
+        const province = data.address.state || '';
+        
+        const lokasi = [village, district, city, province]
+          .filter(Boolean)
+          .join(', ');
+        
+        setFormData(prev => ({ ...prev, lokasi }));
+      }
+    } catch (error) {
+      console.error('Reverse geocoding error:', error);
+    }
+  };
+  // Handle modal form input change
+  const handleModalInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+    
+    // Auto-fill lokasi saat longitude/latitude berubah
+    if (name === 'longitude' || name === 'latitude') {
+      const lat = name === 'latitude' ? value : formData.latitude;
+      const lon = name === 'longitude' ? value : formData.longitude;
+      
+      clearTimeout(window.geocodeTimeout);
+      window.geocodeTimeout = setTimeout(() => {
+        if (lat && lon) {
+          reverseGeocode(lat, lon);
+        }
+      }, 500);
+    }
+  };
+
+  // Handle modal file change
+  const handleModalFileChange = (e) => {
+    const { name, files } = e.target;
+    if (files) {
+      if (name === 'thumbnail') {
+        const file = files[0];
+        setFormData(prev => ({ 
+          ...prev, 
+          thumbnail: file,
+          thumbnailPreview: URL.createObjectURL(file)
+        }));
+      } else if (name === 'images') {
+        setFormData(prev => ({ ...prev, images: Array.from(files) }));
+      }
+    }
+  };
+
+  // Handle remove thumbnail
+  const handleRemoveThumbnail = () => {
+    if (formData.thumbnailPreview) {
+      URL.revokeObjectURL(formData.thumbnailPreview);
+    }
+    setFormData(prev => ({ 
+      ...prev, 
+      thumbnail: null,
+      thumbnailPreview: null
+    }));
+  };
+
+  // Handle modal form submit
+  const handleModalSubmit = async (e) => {
+    e.preventDefault();
+    
+    console.log('Form submitted!');
+    
+    try {
+      const token = localStorage.getItem('adminToken');
+      
+      // Mapping disaster type
+      const categoryMapping = {
+        'Banjir': 'Banjir',
+        'Longsor': 'Tanah Longsor dan Erosi',
+        'Kebakaran': 'Kebakaran Hutan dan Kekeringan'
+      };
+      
+      // Gunakan FormData untuk upload file
+      const formDataToSend = new FormData();
+      formDataToSend.append('title', formData.title);
+      formDataToSend.append('category', categoryMapping[formData.disasterType] || formData.disasterType);
+      formDataToSend.append('incidentDate', formData.incidentDate);
+      formDataToSend.append('location', formData.lokasi);
+      formDataToSend.append('das', formData.das || '');
+      formDataToSend.append('longitude', formData.longitude);
+      formDataToSend.append('latitude', formData.latitude);
+      formDataToSend.append('featured', formData.featured);
+      formDataToSend.append('description', formData.description || '');
+      
+      // Append thumbnail
+      if (formData.thumbnail) {
+        formDataToSend.append('thumbnail', formData.thumbnail);
+      }
+      
+      // Append multiple images
+      formData.images.forEach((image) => {
+        formDataToSend.append('images', image);
+      });
+      
+      const response = await fetch(`${API_URL}/api/kejadian/add`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+          // JANGAN set Content-Type, biar browser set otomatis untuk FormData
+        },
+        body: formDataToSend
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        alert('Kejadian berhasil ditambahkan!');
+        setShowAddModal(false);
+        setFormData({
+          thumbnail: null,
+          thumbnailPreview: null,
+          images: [],
+          title: '',
+          description: '',
+          incidentDate: '',
+          lokasi: '',
+          disasterType: '',
+          das: '',
+          longitude: '',
+          latitude: '',
+          featured: true
+        });
+        fetchIncidents();
+      } else {
+        alert('Gagal menambahkan kejadian: ' + data.message);
+      }
+    } catch (error) {
+      console.error('Submit error:', error);
+      alert('Terjadi kesalahan saat menambahkan kejadian: ' + error.message);
+    }
+  };
+
+  useEffect(() => {
+    fetchIncidents();
+  }, []);
+
+  const fetchIncidents = async () => {
+    try {
+      setIsLoadingIncidents(true);
+      const response = await fetch(`${API_URL}/api/kejadian/list`);
+      const data = await response.json();
+      
+      if (data.success) {
+        const transformedData = data.data.map(item => {
+          // Parse images_paths jika berbentuk string
+          let imagesPaths = [];
+          if (item.images_paths) {
+            if (typeof item.images_paths === 'string') {
+              // Jika string, split atau parse
+              try {
+                imagesPaths = JSON.parse(item.images_paths);
+              } catch {
+                // Jika gagal parse, coba split
+                imagesPaths = item.images_paths.split('/uploads/').filter(Boolean).map(path => '/uploads/' + path);
+              }
+            } else if (Array.isArray(item.images_paths)) {
+              imagesPaths = item.images_paths;
+            }
+          }
+
+          return {
+            id: item.id,
+            title: item.title,
+            image: item.thumbnail_path ? `${API_URL}${item.thumbnail_path}` : 'https://images.unsplash.com/photo-1611273426858-450d8e3c9fce?w=400',
+            category: item.category,
+            type: item.category.toLowerCase().includes('banjir') ? 'banjir' : 
+                  item.category.toLowerCase().includes('longsor') ? 'longsor' : 'kebakaran',
+            date: new Date(item.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
+            location: item.location,
+            das: item.das,
+            coordinates: [item.latitude, item.longitude],
+            featured: item.featured,
+            description: item.description,
+            images_paths: imagesPaths // Array yang sudah di-parse
+          };
+        });
+        
+        setIncidents(transformedData);
+      }
+    } catch (error) {
+      console.error('Error fetching incidents:', error);
+    } finally {
+      setIsLoadingIncidents(false);
+    }
+  };
+
+  const handleDeleteKejadian = async (id) => {
+    if (!window.confirm('Apakah Anda yakin ingin menghapus kejadian ini?')) {
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('adminToken');
+      const response = await fetch(`${API_URL}/api/kejadian/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        alert('Kejadian berhasil dihapus');
+        fetchIncidents(); // Refresh list
+      } else {
+        alert('Gagal menghapus kejadian: ' + data.message);
+      }
+    } catch (error) {
+      console.error('Error deleting kejadian:', error);
+      alert('Terjadi kesalahan saat menghapus kejadian');
+    }
+  };
+
+  // Toggle featured status
+  const handleToggleFeatured = async (id, currentStatus) => {
+    try {
+      const token = localStorage.getItem('adminToken');
+      const response = await fetch(`${API_URL}/api/kejadian/${id}/featured`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ featured: !currentStatus })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        fetchIncidents(); // Refresh list
+      } else {
+        alert('Gagal mengubah status featured: ' + data.message);
+      }
+    } catch (error) {
+      console.error('Error toggling featured:', error);
+      alert('Terjadi kesalahan saat mengubah status featured');
+    }
+  };
+
+  // Check authentication on mount
+  useEffect(() => {
+    const checkExistingSession = async () => {
+      const token = localStorage.getItem('adminToken');
+      const userStr = localStorage.getItem('adminUser');
+      
+      if (token && userStr) {
+        try {
+          const response = await fetch(`${API_URL}/api/admin/verify`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+
+          const data = await response.json();
+          
+          if (data.success) {
+            setIsAuthenticated(true);
+          } else {
+            localStorage.removeItem('adminToken');
+            localStorage.removeItem('adminUser');
+            setIsAuthenticated(false);
+          }
+        } catch (error) {
+          console.error('Token verification failed:', error);
+          localStorage.removeItem('adminToken');
+          localStorage.removeItem('adminUser');
+          setIsAuthenticated(false);
+        }
+      }
+    };
+
+    checkExistingSession();
+  }, []);
+
+  // Handle logout
+  const handleLogout = () => {
+    localStorage.removeItem('adminToken');
+    setIsAuthenticated(false);
+  };
+
+  // Handle form input change
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  // Handle file change
+  const handleFileChange = (e) => {
+    const { name, files } = e.target;
+    if (files) {
+      if (name === 'thumbnail') {
+        setFormData(prev => ({ ...prev, thumbnail: files[0] }));
+      } else if (name === 'images') {
+        setFormData(prev => ({ ...prev, images: Array.from(files) }));
+      } else if (name === 'dataFiles') {
+        setFormData(prev => ({ ...prev, dataFiles: Array.from(files) }));
+      }
+    }
+  };
+
+  // Handle submit form
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    try {
+      const token = localStorage.getItem('adminToken');
+      const response = await fetch(`${API_URL}/api/kejadian/add`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(formData)
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        alert('Kejadian berhasil ditambahkan!');
+        setShowAddModal(false);
+        setFormData({
+          thumbnail: null,
+          images: [],
+          title: '',
+          description: '',
+          incidentDate: '',
+          provinsi: '',
+          kabupaten: '',
+          kecamatan: '',
+          kelurahan: '',
+          disasterType: '',
+          das: '',
+          dataFiles: [],
+          longitude: '',
+          latitude: ''
+        });
+      } else {
+        alert('Gagal menambahkan kejadian: ' + data.message);
+      }
+    } catch (error) {
+      console.error('Submit error:', error);
+      alert('Terjadi kesalahan saat menambahkan kejadian');
+    }
+  };
 
   // Extended dummy data with more incidents across Indonesia
   const dummyIncidents = [
@@ -35,6 +427,7 @@ const Kebencanaan = () => {
       date: '23 Mei 2025',
       location: 'Kampar, Riau',
       address: 'Jalan H. Saman',
+      das:"serayu",
       coordinates: [0.3397, 101.1427],
       featured: true,
     },
@@ -47,6 +440,7 @@ const Kebencanaan = () => {
       date: '22 Mei 2025',
       location: 'Blora, Jawa Tengah',
       address: 'Kecamatan Blora',
+      das:"serayu",
       coordinates: [-6.9698, 111.4194],
       featured: true,
     },
@@ -59,6 +453,7 @@ const Kebencanaan = () => {
       date: '21 Mei 2025',
       location: 'Karawang, Jawa Barat',
       address: 'Kecamatan Telukjambe',
+      das:"serayu",
       coordinates: [-6.3064, 107.3020],
       featured: true,
     },
@@ -71,6 +466,7 @@ const Kebencanaan = () => {
       date: '20 Mei 2025',
       location: 'Cianjur, Jawa Barat',
       address: 'Desa Gasol',
+      das:"serayu",
       coordinates: [-6.8166, 107.1427],
       featured: false,
     },
@@ -83,6 +479,7 @@ const Kebencanaan = () => {
       date: '19 Mei 2025',
       location: 'Gunungkidul, DI Yogyakarta',
       address: 'Kecamatan Wonosari',
+      das:"serayu",
       coordinates: [-7.9781, 110.5964],
       featured: false,
     },
@@ -95,6 +492,7 @@ const Kebencanaan = () => {
       date: '18 Mei 2025',
       location: 'Garut, Jawa Barat',
       address: 'Kecamatan Tarogong',
+      das:"serayu",
       coordinates: [-7.2206, 107.9079],
       featured: false,
     },
@@ -106,6 +504,7 @@ const Kebencanaan = () => {
       type: 'banjir',
       date: '17 Mei 2025',
       location: 'Bandung, Jawa Barat',
+      das:"serayu",
       coordinates: [-6.9175, 107.6191],
       featured: false,
     },
@@ -117,6 +516,7 @@ const Kebencanaan = () => {
       type: 'longsor',
       date: '16 Mei 2025',
       location: 'Bogor, Jawa Barat',
+      das:"serayu",
       coordinates: [-6.5971, 106.8060],
       featured: false,
     },
@@ -128,6 +528,7 @@ const Kebencanaan = () => {
       type: 'banjir',
       date: '15 Mei 2025',
       location: 'Indramayu, Jawa Barat',
+      das:"serayu",
       coordinates: [-6.3269, 108.3199],
       featured: false,
     },
@@ -139,6 +540,7 @@ const Kebencanaan = () => {
       type: 'banjir',
       date: '14 Mei 2025',
       location: 'Semarang, Jawa Tengah',
+      das:"serayu",
       coordinates: [-6.9667, 110.4167],
       featured: true,
     },
@@ -150,6 +552,7 @@ const Kebencanaan = () => {
       type: 'longsor',
       date: '13 Mei 2025',
       location: 'Wonosobo, Jawa Tengah',
+      das:"serayu",
       coordinates: [-7.3631, 109.9036],
       featured: false,
     },
@@ -161,6 +564,7 @@ const Kebencanaan = () => {
       type: 'banjir',
       date: '12 Mei 2025',
       location: 'Pekalongan, Jawa Tengah',
+      das:"serayu",
       coordinates: [-6.8886, 109.6753],
       featured: false,
     },
@@ -172,6 +576,7 @@ const Kebencanaan = () => {
       type: 'banjir',
       date: '11 Mei 2025',
       location: 'Malang, Jawa Timur',
+      das:"serayu",
       coordinates: [-7.9797, 112.6304],
       featured: true,
     },
@@ -183,6 +588,7 @@ const Kebencanaan = () => {
       type: 'longsor',
       date: '10 Mei 2025',
       location: 'Probolinggo, Jawa Timur',
+      das:"serayu",
       coordinates: [-7.7543, 113.2159],
       featured: false,
     },
@@ -194,6 +600,7 @@ const Kebencanaan = () => {
       type: 'banjir',
       date: '9 Mei 2025',
       location: 'Surabaya, Jawa Timur',
+      das:"serayu",
       coordinates: [-7.2575, 112.7521],
       featured: false,
     },
@@ -205,6 +612,7 @@ const Kebencanaan = () => {
       type: 'kebakaran',
       date: '8 Mei 2025',
       location: 'Jambi, Jambi',
+      das:"serayu",
       coordinates: [-1.6101, 103.6131],
       featured: true,
     },
@@ -216,6 +624,7 @@ const Kebencanaan = () => {
       type: 'banjir',
       date: '7 Mei 2025',
       location: 'Padang, Sumatera Barat',
+      das:"serayu",
       coordinates: [-0.9471, 100.4172],
       featured: false,
     },
@@ -227,6 +636,7 @@ const Kebencanaan = () => {
       type: 'longsor',
       date: '6 Mei 2025',
       location: 'Bukittinggi, Sumatera Barat',
+      das:"serayu",
       coordinates: [-0.3055, 100.3692],
       featured: false,
     },
@@ -238,6 +648,7 @@ const Kebencanaan = () => {
       type: 'banjir',
       date: '5 Mei 2025',
       location: 'Medan, Sumatera Utara',
+      das:"serayu",
       coordinates: [3.5952, 98.6722],
       featured: false,
     },
@@ -249,6 +660,7 @@ const Kebencanaan = () => {
       type: 'kebakaran',
       date: '4 Mei 2025',
       location: 'Palembang, Sumatera Selatan',
+      das:"serayu",
       coordinates: [-2.9761, 104.7754],
       featured: false,
     },
@@ -260,6 +672,7 @@ const Kebencanaan = () => {
       type: 'kebakaran',
       date: '3 Mei 2025',
       location: 'Pontianak, Kalimantan Barat',
+      das:"serayu",
       coordinates: [-0.0263, 109.3425],
       featured: true,
     },
@@ -271,7 +684,8 @@ const Kebencanaan = () => {
       type: 'banjir',
       date: '2 Mei 2025',
       location: 'Banjarmasin, Kalimantan Selatan',
-      coordinates: [-3.3194, 114.5900],
+      das:"serayu",
+coordinates: [-3.3194, 114.5900],
       featured: false,
     },
     {
@@ -282,7 +696,8 @@ const Kebencanaan = () => {
       type: 'kebakaran',
       date: '1 Mei 2025',
       location: 'Balikpapan, Kalimantan Timur',
-      coordinates: [-1.2379, 116.8529],
+      das:"serayu",
+coordinates: [-1.2379, 116.8529],
       featured: false,
     },
     {
@@ -293,7 +708,8 @@ const Kebencanaan = () => {
       type: 'banjir',
       date: '30 Apr 2025',
       location: 'Makassar, Sulawesi Selatan',
-      coordinates: [-5.1477, 119.4327],
+      das:"serayu",
+coordinates: [-5.1477, 119.4327],
       featured: false,
     },
     {
@@ -304,7 +720,8 @@ const Kebencanaan = () => {
       type: 'longsor',
       date: '29 Apr 2025',
       location: 'Manado, Sulawesi Utara',
-      coordinates: [1.4748, 124.8421],
+      das:"serayu",
+coordinates: [1.4748, 124.8421],
       featured: false,
     },
     {
@@ -315,7 +732,8 @@ const Kebencanaan = () => {
       type: 'banjir',
       date: '28 Apr 2025',
       location: 'Denpasar, Bali',
-      coordinates: [-8.6705, 115.2126],
+      das:"serayu",
+coordinates: [-8.6705, 115.2126],
       featured: false,
     },
     {
@@ -326,7 +744,8 @@ const Kebencanaan = () => {
       type: 'longsor',
       date: '27 Apr 2025',
       location: 'Lombok, Nusa Tenggara Barat',
-      coordinates: [-8.5833, 116.1167],
+      das:"serayu",
+coordinates: [-8.5833, 116.1167],
       featured: false,
     },
     {
@@ -337,7 +756,8 @@ const Kebencanaan = () => {
       type: 'banjir',
       date: '26 Apr 2025',
       location: 'Jayapura, Papua',
-      coordinates: [-2.5920, 140.6689],
+      das:"serayu",
+coordinates: [-2.5920, 140.6689],
       featured: false,
     },
     {
@@ -348,7 +768,8 @@ const Kebencanaan = () => {
       type: 'banjir',
       date: '25 Apr 2025',
       location: 'Jakarta Utara, DKI Jakarta',
-      coordinates: [-6.1381, 106.8634],
+      das:"serayu",
+coordinates: [-6.1381, 106.8634],
       featured: true,
     },
     {
@@ -359,7 +780,8 @@ const Kebencanaan = () => {
       type: 'banjir',
       date: '24 Apr 2025',
       location: 'Tangerang Selatan, Banten',
-      coordinates: [-6.2900, 106.7200],
+      das:"serayu",
+coordinates: [-6.2900, 106.7200],
       featured: false,
     },
   ];
@@ -427,11 +849,15 @@ const Kebencanaan = () => {
     'Tanah Longsor dan Erosi': 'longsor',
   };
 
-  // Filter function with map bounds
+// ================= Akhir penambahan CATEGORY TO TYPE MAPPING ================
+
+// ================= Mulai perubahan FILTERED INCIDENTS (dengan matchesBounds) ================
+  // Filter incidents dengan map bounds
   const getFilteredIncidents = () => {
-    return dummyIncidents.filter(incident => {
+    return incidents.filter(incident => {
       const matchesSearch = searchText === '' || 
-        incident.title.toLowerCase().includes(searchText.toLowerCase());
+        incident.title.toLowerCase().includes(searchText.toLowerCase()) ||
+        incident.location.toLowerCase().includes(searchText.toLowerCase());
       
       const matchesLocation = selectedLocation === 'All Lokasi' || 
         incident.location.toLowerCase().includes(selectedLocation.toLowerCase());
@@ -593,7 +1019,7 @@ const Kebencanaan = () => {
       });
     };
 
-    const filteredForMarkers = dummyIncidents.filter(incident => {
+    const filteredForMarkers = incidents.filter(incident => {
       const matchesSearch = searchText === '' || 
         incident.title.toLowerCase().includes(searchText.toLowerCase());
       const matchesLocation = selectedLocation === 'All Lokasi' || 
@@ -654,7 +1080,7 @@ const Kebencanaan = () => {
         `;
         
         window.navigateToDetail = () => {
-          navigate('/detailkejadian');
+          navigate('/detailkejadian', { state: { incident: inc } });
         };
         
         window.closeCurrentPopup = () => {
@@ -682,19 +1108,23 @@ const Kebencanaan = () => {
       markerClusterGroupRef.current.addLayer(marker);
     });
 
-    mapInstanceRef.current.addLayer(markerClusterGroupRef.current);
+    if (markerClusterGroupRef.current.getLayers().length > 0) {
+  mapInstanceRef.current.addLayer(markerClusterGroupRef.current);
+}
 
-    console.log('✅ Markers updated:', filteredForMarkers.length);
+console.log(`✅ Added ${filteredForMarkers.length} markers to map`);
 
-    if (filteredForMarkers.length > 0 && !mapBounds) {
-      try {
-        const bounds = window.L.latLngBounds(filteredForMarkers.map(inc => inc.coordinates));
-        mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 10 });
-      } catch (error) {
-        console.error('Error fitting bounds:', error);
-      }
-    }
-  }, [searchText, selectedLocation, selectedCategory, mapBounds]);
+// TAMBAHKAN INI - auto fit bounds pertama kali
+if (filteredForMarkers.length > 0 && !mapBounds) {
+  try {
+    const bounds = window.L.latLngBounds(filteredForMarkers.map(inc => inc.coordinates));
+    mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 10 });
+  } catch (error) {
+    console.error('Error fitting bounds:', error);
+  }
+}
+
+}, [incidents, searchText, selectedLocation, selectedCategory, mapBounds, navigate]);
 
   return (
     <>
@@ -766,9 +1196,32 @@ const Kebencanaan = () => {
           }
         `}
       </style>
-      <div className="flex flex-col h-screen w-full bg-gray-50">
+
+    {isAuthenticated && (
+        <div className="bg-green-50 border-b border-green-200 px-6 py-3">
+          <div className="max-w-7xl mx-auto flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
+              <span className="text-green-800 text-sm font-medium">
+                Logged in as Admin
+              </span>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="px-4 py-1.5 bg-red-500 text-white text-sm rounded hover:bg-red-600 transition"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+      )} 
+
+      <div className="flex flex-col w-full bg-gray-50">
       {/* Map Section */}
-      <div className="relative h-1/2 w-full">
+      <div className="relative w-full" style={{ height: '500px' }}>
         <div ref={mapRef} style={{ height: '100%', width: '100%' }} />
 
         {/* Menu Button */}
@@ -957,6 +1410,18 @@ const Kebencanaan = () => {
               </svg>
             </button>
             
+            {isAuthenticated && (
+                  <button
+                    onClick={() => setShowAddModal(true)}
+                    className="p-2 rounded bg-white text-gray-400 border-2 border-gray-200 hover:bg-gray-50"
+                    title="Tambah Kejadian"
+                  >
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd"/>
+                    </svg>
+                  </button>
+                )}
+
             {/* Display count of visible incidents */}
             <span className="ml-2 text-sm text-gray-600">
               Menampilkan {startIndex + 1}-{Math.min(endIndex, filteredIncidents.length)} dari {filteredIncidents.length} kejadian
@@ -1134,66 +1599,138 @@ const Kebencanaan = () => {
               {viewMode === 'grid' ? (
                 <div className="grid grid-cols-3 gap-6">
                   {paginatedIncidents.map((incident) => (
-                    <div key={incident.id} onClick={() => navigate('/detailkejadian')} className="bg-white rounded-lg overflow-hidden shadow hover:shadow-lg transition group cursor-pointer">
-                      <div className="relative">
-                        <img src={incident.image} alt={incident.title} className="w-full h-48 object-cover" />
-                        {incident.featured && (
-                          <div className="absolute top-3 left-3 bg-yellow-400 text-white px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1">
-                            <span>⭐</span> Featured
+                    <div key={incident.id} className="bg-white rounded-lg overflow-hidden shadow hover:shadow-lg transition group">
+                      <div 
+                        onClick={() => navigate('/detailkejadian', { state: { incident } })} 
+                        className="cursor-pointer"
+                      >
+                        <div className="relative">
+                          <img src={incident.image} alt={incident.title} className="w-full h-48 object-cover" />
+                          {incident.featured && (
+                            <div className="absolute top-3 left-3 bg-yellow-400 text-white px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1">
+                              <span>⭐</span> Featured
+                            </div>
+                          )}
+                          <button onClick={(e) => e.stopPropagation()} className="absolute top-3 right-3 bg-white rounded-full p-2 hover:bg-gray-100">
+                            <svg className="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
+                              <path d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z"/>
+                            </svg>
+                          </button>
+                          <div className="absolute bottom-3 left-3">
+                            <span className="bg-red-500 text-white px-3 py-1 rounded text-xs font-semibold">
+                              {incident.category}
+                            </span>
                           </div>
-                        )}
-                        <button onClick={(e) => e.stopPropagation()} className="absolute top-3 right-3 bg-white rounded-full p-2 hover:bg-gray-100">
-                          <svg className="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
-                            <path d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z"/>
-                          </svg>
-                        </button>
-                        <div className="absolute bottom-3 left-3">
-                          <span className="bg-red-500 text-white px-3 py-1 rounded text-xs font-semibold">
-                            {incident.category}
-                          </span>
+                        </div>
+                        <div className="p-4">
+                          <h3 className="font-semibold text-gray-800 mb-2 line-clamp-2 group-hover:text-red-500 transition">
+                            {incident.title}
+                          </h3>
+                          <div className="text-sm text-gray-500 mb-1">{incident.location}</div>
+                          <div className="text-xs text-gray-400">{incident.date}</div>
                         </div>
                       </div>
-                      <div className="p-4">
-                        <h3 className="font-semibold text-gray-800 mb-2 line-clamp-2 group-hover:text-red-500 transition">
-                          {incident.title}
-                        </h3>
-                        <div className="text-sm text-gray-500 mb-1">{incident.location}</div>
-                        <div className="text-xs text-gray-400">{incident.date}</div>
-                      </div>
+
+                      {/* ADMIN CONTROLS - hanya muncul jika logged in */}
+                      {isAuthenticated && (
+                        <div className="p-3 border-t border-gray-200 bg-gray-50 flex gap-2">
+                          {/* Toggle Featured */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleFeatured(incident.id, incident.featured);
+                            }}
+                            className={`flex-1 px-3 py-1.5 rounded text-xs font-medium transition ${
+                              incident.featured 
+                                ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' 
+                                : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                            }`}
+                          >
+                            {incident.featured ? '⭐ Featured' : '☆ Set Featured'}
+                          </button>
+
+                          {/* Delete Button */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteKejadian(incident.id);
+                            }}
+                            className="px-3 py-1.5 bg-red-100 text-red-600 rounded text-xs font-medium hover:bg-red-200 transition"
+                          >
+                            🗑️ Hapus
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
               ) : (
                 <div className="space-y-4">
                   {paginatedIncidents.map((incident) => (
-                    <div key={incident.id} onClick={() => navigate('/detailkejadian')} className="bg-white rounded-lg overflow-hidden shadow hover:shadow-lg transition flex cursor-pointer group">
-                      <div className="relative w-80 flex-shrink-0">
-                        <img src={incident.image} alt={incident.title} className="w-full h-48 object-cover object-center" />
-                        {incident.featured && (
-                          <div className="absolute top-3 left-3 bg-yellow-400 text-white px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1">
-                            <span>⭐</span> Featured
+                    <div key={incident.id} className="bg-white rounded-lg overflow-hidden shadow hover:shadow-lg transition">
+                      <div 
+                        onClick={() => navigate('/detailkejadian', { state: { incident } })} 
+                        className="flex cursor-pointer group"
+                      >
+                        <div className="relative w-80 flex-shrink-0">
+                          <img src={incident.image} alt={incident.title} className="w-full h-48 object-cover object-center" />
+                          {incident.featured && (
+                            <div className="absolute top-3 left-3 bg-yellow-400 text-white px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1">
+                              <span>⭐</span> Featured
+                            </div>
+                          )}
+                          <div className="absolute bottom-3 left-3">
+                            <span className="bg-red-500 text-white px-3 py-1 rounded text-xs font-semibold">
+                              {incident.category}
+                            </span>
                           </div>
-                        )}
-                        <div className="absolute bottom-3 left-3">
-                          <span className="bg-red-500 text-white px-3 py-1 rounded text-xs font-semibold">
-                            {incident.category}
-                          </span>
+                        </div>
+                        <div className="flex-1 p-6 flex flex-col justify-between">
+                          <div>
+                            <h3 className="text-xl font-semibold text-gray-800 mb-2 group-hover:text-red-500 transition">
+                              {incident.title}
+                            </h3>
+                            <div className="text-sm text-gray-500 mb-1">{incident.location}</div>
+                            <div className="text-xs text-gray-400">{incident.date}</div>
+                          </div>
+                        </div>
+                        <div className="p-6 flex items-center">
+                          <button onClick={(e) => e.stopPropagation()} className="bg-white rounded-full p-3 hover:bg-gray-100 border-2 border-gray-200">
+                            <svg className="w-6 h-6 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
+                              <path d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z"/>
+                            </svg>
+                          </button>
                         </div>
                       </div>
-                      <div className="flex-1 p-6 flex flex-col justify-between">
-                        <div>
-                          <h3 className="text-xl font-semibold text-gray-800 mb-2 group-hover:text-red-500 transition">
-                            {incident.title}
-                          </h3>
+
+                      {/* ADMIN CONTROLS - hanya muncul jika logged in */}
+                      {isAuthenticated && (
+                        <div className="p-3 border-t border-gray-200 bg-gray-50 flex gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleFeatured(incident.id, incident.featured);
+                            }}
+                            className={`flex-1 px-4 py-2 rounded text-sm font-medium transition ${
+                              incident.featured 
+                                ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' 
+                                : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                            }`}
+                          >
+                            {incident.featured ? '⭐ Featured' : '☆ Set Featured'}
+                          </button>
+
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteKejadian(incident.id);
+                            }}
+                            className="px-4 py-2 bg-red-100 text-red-600 rounded text-sm font-medium hover:bg-red-200 transition"
+                          >
+                            🗑️ Hapus
+                          </button>
                         </div>
-                      </div>
-                      <div className="p-6 flex items-center">
-                        <button onClick={(e) => e.stopPropagation()} className="bg-white rounded-full p-3 hover:bg-gray-100 border-2 border-gray-200">
-                          <svg className="w-6 h-6 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
-                            <path d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z"/>
-                          </svg>
-                        </button>
-                      </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1290,6 +1827,288 @@ const Kebencanaan = () => {
         </div>
       </div>
     </div>
+
+    {/* Add Kejadian Modal */}
+    {showAddModal && (
+      <div className="fixed inset-0 bg-black/75 bg-opacity-50 flex justify-center items-center z-[10000] p-4 overflow-y-auto" onClick={() => setShowAddModal(false)}>
+        <div className="bg-white rounded-lg p-6 w-full max-w-2xl shadow-lg my-8" onClick={(e) => e.stopPropagation()}>
+          <div className="flex justify-between items-center mb-4 pb-3 border-b border-gray-200">
+            <h3 className="text-xl font-semibold text-gray-800">Tambah Laporan Bencana</h3>
+            <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+          </div>
+          
+          <form onSubmit={handleModalSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
+            
+            {/* Thumbnail Upload */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Upload Gambar Thumbnail Laporan</label>
+              
+              {!formData.thumbnail ? (
+                <div 
+                  onClick={() => document.getElementById('thumbnail')?.click()}
+                  className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-gray-400 hover:bg-gray-50 transition"
+                >
+                  <input
+                    type="file"
+                    id="thumbnail"
+                    name="thumbnail"
+                    accept="image/*"
+                    onChange={handleModalFileChange}
+                    className="hidden"
+                  />
+                  <div className="flex flex-col items-center">
+                    <svg className="w-12 h-12 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                    <p className="text-gray-600 font-medium">Upload Thumbnail</p>
+                    <p className="text-gray-400 text-sm mt-1">Klik untuk memilih gambar</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="relative border-2 border-gray-300 rounded-lg overflow-hidden group">
+                  <img 
+                    src={formData.thumbnailPreview} 
+                    alt="Thumbnail Preview" 
+                    className="w-full h-48 object-cover"
+                  />
+                  
+                  <div className="absolute inset-0 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => document.getElementById('thumbnail')?.click()}
+                      className="p-3 bg-green-500 text-white rounded-full hover:bg-green-600 transition"
+                      title="Ganti gambar"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRemoveThumbnail}
+                      className="p-3 bg-red-500 text-white rounded-full hover:bg-red-600 transition"
+                      title="Hapus gambar"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                  
+                  <div className="p-2 bg-gray-50 border-t border-gray-200 flex justify-between items-center">
+                    <span className="text-sm text-gray-600 truncate">{formData.thumbnail.name}</span>
+                    <span className="text-xs text-gray-400">{(formData.thumbnail.size / 1024 / 1024).toFixed(2)} MB</span>
+                  </div>
+                  
+                  <input
+                    type="file"
+                    id="thumbnail"
+                    name="thumbnail"
+                    accept="image/*"
+                    onChange={handleModalFileChange}
+                    className="hidden"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Images Upload */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Upload Foto Kegiatan</label>
+              <div 
+                onClick={() => document.getElementById('images')?.click()}
+                className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-gray-400 hover:bg-gray-50 transition"
+              >
+                <input
+                  type="file"
+                  id="images"
+                  name="images"
+                  accept="image/*"
+                  multiple
+                  onChange={handleModalFileChange}
+                  className="hidden"
+                />
+                <div className="flex flex-col items-center">
+                  <svg className="w-12 h-12 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                  <p className="text-gray-600 font-medium">Upload Foto Kegiatan</p>
+                </div>
+              </div>
+
+              {formData.images.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {formData.images.map((file, index) => (
+                    <div key={index} className="flex justify-between items-center text-sm bg-gray-50 p-2 rounded">
+                      <span className="text-gray-700 truncate">{file.name}</span>
+                      <button 
+                        type="button" 
+                        onClick={() => {
+                          const newFiles = [...formData.images];
+                          newFiles.splice(index, 1);
+                          setFormData(prev => ({ ...prev, images: newFiles }));
+                        }}
+                        className="text-red-500 hover:text-red-700 ml-2"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Title */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Judul Laporan</label>
+              <input
+                type="text"
+                name="title"
+                value={formData.title}
+                onChange={handleModalInputChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+
+            {/* Description */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Deskripsi</label>
+              <textarea
+                name="description"
+                value={formData.description}
+                onChange={handleModalInputChange}
+                rows={4}
+                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              ></textarea>
+            </div>
+
+            {/* Date */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal Kejadian</label>
+              <input
+                type="date"
+                name="incidentDate"
+                value={formData.incidentDate}
+                onChange={handleModalInputChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+
+            {/* Coordinates */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Longitude</label>
+                <input
+                  type="number"
+                  name="longitude"
+                  value={formData.longitude}
+                  onChange={handleModalInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  step="0.000001"
+                  placeholder="Contoh: 108.65"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Latitude</label>
+                <input
+                  type="number"
+                  name="latitude"
+                  value={formData.latitude}
+                  onChange={handleModalInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  step="0.000001"
+                  placeholder="Contoh: -7.62"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Lokasi - Auto-filled */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Lokasi
+                {formData.lokasi && (
+                  <span className="ml-2 text-xs text-green-600">(Auto-filled dari koordinat)</span>
+                )}
+              </label>
+              <input
+                type="text"
+                name="lokasi"
+                value={formData.lokasi}
+                onChange={handleModalInputChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Akan terisi otomatis dari koordinat, atau ketik manual"
+              />
+            </div>
+
+            {/* Disaster Type & DAS */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Jenis Bencana</label>
+                <select
+                  name="disasterType"
+                  value={formData.disasterType}
+                  onChange={handleModalInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                >
+                  <option value="">Pilih Jenis Bencana</option>
+                  <option value="Banjir">Banjir</option>
+                  <option value="Longsor">Longsor</option>
+                  <option value="Kebakaran">Kebakaran</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">DAS</label>
+                <input
+                  type="text"
+                  name="das"
+                  value={formData.das}
+                  onChange={handleModalInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+            
+            {/* Featured Toggle */}
+            <div className="flex items-center justify-between p-3 bg-gray-50 rounded border border-gray-200">
+              <div>
+                <label className="text-sm font-medium text-gray-700">Featured</label>
+                <p className="text-xs text-gray-500">Tampilkan di halaman utama</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFormData(prev => ({ ...prev, featured: !prev.featured }))}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  formData.featured ? 'bg-green-500' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    formData.featured ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Submit Buttons */}
+            <div className="flex gap-3 pt-4 border-t border-gray-200">
+              <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition">
+                Batal
+              </button>
+              <button type="submit" className="flex-1 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition">
+                Simpan
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )}
+
     </>
   );
 };
