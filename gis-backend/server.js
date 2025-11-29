@@ -13,6 +13,10 @@ const fs = require('fs');
 const XLSX = require('xlsx');
 
 const app = express();
+const progressClients = new Map();
+const { exec, spawn } = require('child_process');
+const util = require('util');
+const execPromise = util.promisify(exec);
 app.use(cors({
   origin: true,  // Allow semua origin
   credentials: true
@@ -5174,29 +5178,29 @@ const pool = new Pool(dbConfig);
 //   }
 // }, 10 * 60 * 1000); 
 
-// // Error handler untuk kedua konfigurasi multer
-// app.use((error, req, res, next) => {
-//   if (error instanceof multer.MulterError) {
-//     if (error.code === 'LIMIT_FILE_SIZE') {
-//       return res.status(400).json({ error: 'File too large (max 10MB)' });
-//     }
-//     return res.status(400).json({ error: `Upload error: ${error.message}` });
-//   }
+// Error handler untuk kedua konfigurasi multer
+app.use((error, req, res, next) => {
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'File too large (max 10MB)' });
+    }
+    return res.status(400).json({ error: `Upload error: ${error.message}` });
+  }
   
-//   // Handle fileFilter errors dengan pesan yang lebih jelas
-//   if (error.message && error.message.includes('Only image and Excel files are allowed')) {
-//     return res.status(400).json({ 
-//       error: 'File type not supported in kejadian form. Only images and Excel files are allowed.' 
-//     });
-//   }
+  // Handle fileFilter errors dengan pesan yang lebih jelas
+  if (error.message && error.message.includes('Only image and Excel files are allowed')) {
+    return res.status(400).json({ 
+      error: 'File type not supported in kejadian form. Only images and Excel files are allowed.' 
+    });
+  }
   
-//   // General multer error
-//   if (error.message) {
-//     return res.status(400).json({ error: error.message });
-//   }
+  // General multer error
+  if (error.message) {
+    return res.status(400).json({ error: error.message });
+  }
   
-//   next(error);
-// });
+  next(error);
+});
 
 // // Generic endpoint untuk mitigation layers - tambahkan setelah endpoint layer yang sudah ada
 // app.get('/api/layers/:tableName', async (req, res) => {
@@ -8788,10 +8792,53 @@ const createKejadianTable = async () => {
   }
 };
 
+const createLayerMetadataTable = async () => {
+  const createTableSQL = `
+    -- LAYER METADATA TABLE
+    CREATE TABLE IF NOT EXISTS layer_metadata (
+      id SERIAL PRIMARY KEY,
+      table_name VARCHAR(255) NOT NULL UNIQUE,
+      section VARCHAR(50) NOT NULL CHECK (section IN ('kerawanan', 'mitigasiAdaptasi', 'lainnya')),
+      original_files TEXT[],
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Indexes
+    CREATE INDEX IF NOT EXISTS idx_layer_metadata_section ON layer_metadata(section);
+    CREATE INDEX IF NOT EXISTS idx_layer_metadata_created_at ON layer_metadata(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_layer_metadata_table_name ON layer_metadata(table_name);
+
+    -- TRIGGER untuk auto-update updated_at
+    CREATE OR REPLACE FUNCTION update_layer_metadata_updated_at()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        NEW.updated_at = CURRENT_TIMESTAMP;
+        RETURN NEW;
+    END;
+
+    $$ LANGUAGE plpgsql;
+
+    DROP TRIGGER IF EXISTS update_layer_metadata_updated_at ON layer_metadata;
+    CREATE TRIGGER update_layer_metadata_updated_at
+        BEFORE UPDATE ON layer_metadata
+        FOR EACH ROW
+        EXECUTE FUNCTION update_layer_metadata_updated_at();
+  `;
+
+  try {
+    await client.query(createTableSQL);
+    console.log('✅ Layer metadata table created successfully');
+  } catch (error) {
+    console.error('❌ Error creating layer metadata table:', error);
+  }
+};
+
 client.connect()
   .then(async () => {
     console.log('Connected to PostgreSQL');
     await createKejadianTable();
+    await createLayerMetadataTable();
   })
   .catch(err => console.error('Connection error:', err));
 
@@ -9129,6 +9176,914 @@ app.delete('/api/kejadian/:id', verifyToken, async (req, res) => {
       message: 'Gagal menghapus kejadian',
       error: error.message
     });
+  }
+});
+
+// Setup for shapefile uploads
+const uploadDir = path.join(__dirname, 'uploads/shapefiles');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// Multer configuration for shapefile upload
+const shapefileStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    // Keep original filename to maintain .shp, .shx, .dbf extensions
+    cb(null, file.originalname);
+  }
+});
+
+const shapefileUpload = multer({ 
+  storage: shapefileStorage,
+  fileFilter: (req, file, cb) => {
+    // Allow shapefile related files
+    const allowedExtensions = ['.shp', '.shx', '.dbf', '.prj', '.cpg', '.sbn', '.sbx'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowedExtensions.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only shapefile components are allowed (.shp, .shx, .dbf, .prj, etc.)'), false);
+    }
+  },
+  limits: {
+    fileSize: 5 * 1024 * 1024 * 1024, // 5GB limit untuk shapefile
+    files: 20 // Maksimal 20 file sekaligus
+  }
+});
+
+// Endpoint untuk mendapatkan semua layer
+app.get('/api/layers', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT id, table_name, section, created_at 
+      FROM layer_metadata 
+      ORDER BY created_at DESC
+    `);
+    
+    // Group by section
+    const grouped = {
+      kerawanan: [],
+      mitigasiAdaptasi: [],
+      lainnya: []
+    };
+    
+    result.rows.forEach(row => {
+      grouped[row.section].push({
+        id: row.id.toString(),
+        name: row.table_name,
+        createdAt: row.created_at
+      });
+    });
+    
+    res.json(grouped);
+  } catch (error) {
+    console.error('Error fetching layers:', error);
+    res.status(500).json({ error: 'Failed to fetch layers' });
+  }
+});
+
+
+const shapefile = require('shapefile');
+
+// Helper untuk monitor progress insert real-time
+async function monitorTableInsertProgress(tableName, checkInterval = 1000) {
+  let lastCount = 0;
+  
+  const intervalId = setInterval(async () => {
+    try {
+      const client = await pool.connect();
+      const result = await client.query(`
+        SELECT COUNT(*) as count 
+        FROM ${tableName}
+      `);
+      const currentCount = parseInt(result.rows[0].count);
+      client.release();
+      
+      if (currentCount > lastCount) {
+        lastCount = currentCount;
+        
+        // Estimasi progress (karena tidak tahu total)
+        // Progress akan melambat secara logaritmik
+        const progress = Math.min(Math.round(20 + Math.log10(currentCount + 1) * 15), 95);
+        
+        sendProgress(tableName, progress, `Inserted ${currentCount.toLocaleString()} features...`);
+        console.log(`  Progress: ${currentCount.toLocaleString()} features inserted`);
+      }
+    } catch (err) {
+      // Table mungkin belum dibuat, ignore
+    }
+  }, checkInterval);
+  
+  return intervalId;
+}
+
+// Endpoint untuk upload dan create layer baru
+app.post('/api/layers', shapefileUpload.array('files'), async (req, res) => {
+  console.log('\n========================================');
+  console.log('START POST /api/layers');
+  console.log('========================================');
+  
+  const client = await pool.connect();
+  let uploadedFilePaths = [];
+  let tableCreated = false;
+  
+  try {
+    const { tableName, section } = req.body;
+    const files = req.files;
+    
+    console.log('Table Name:', tableName);
+    console.log('Section:', section);
+    console.log('Files Count:', files?.length);
+    
+    // Validasi input
+    if (!tableName || !section) {
+      return res.status(400).json({ error: 'Table name and section are required' });
+    }
+    
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: 'No files uploaded' });
+    }
+    
+    uploadedFilePaths = files.map(f => f.path);
+    
+    // Cari .shp dan .dbf
+    const shpFile = files.find(f => f.originalname.toLowerCase().endsWith('.shp'));
+    const dbfFile = files.find(f => f.originalname.toLowerCase().endsWith('.dbf'));
+    
+    console.log('SHP File:', shpFile ? shpFile.originalname : 'NOT FOUND');
+    console.log('DBF File:', dbfFile ? dbfFile.originalname : 'NOT FOUND');
+    
+    if (!shpFile || !dbfFile) {
+      return res.status(400).json({ error: 'Both .shp and .dbf files are required' });
+    }
+    
+    // Sanitize table name
+    const sanitizedTableName = tableName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    console.log('Sanitized Table Name:', sanitizedTableName);
+    
+    // BEGIN transaction
+    await client.query('BEGIN');
+    console.log('Transaction: BEGIN');
+    
+    // Check if table exists
+    const tableCheck = await client.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' AND table_name = $1
+      )
+    `, [sanitizedTableName]);
+    
+    if (tableCheck.rows[0].exists) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Table already exists: ' + sanitizedTableName });
+    }
+    
+    // ============================================================
+    // STEP 1: Analyze shapefile structure
+    // ============================================================
+    console.log('\n--- STEP 1: Analyzing Shapefile ---');
+    const dbfSource = await shapefile.openDbf(dbfFile.path);
+    const firstResult = await dbfSource.read();
+    
+    if (firstResult.done || !firstResult.value) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Shapefile is empty' });
+    }
+    
+    // Sample 50 rows untuk type detection
+    const sampleData = [firstResult.value];
+    let nextResult = await dbfSource.read();
+    let count = 1;
+    
+    while (!nextResult.done && count < 50) {
+      sampleData.push(nextResult.value);
+      nextResult = await dbfSource.read();
+      count++;
+    }
+    
+    console.log('Sample Size:', sampleData.length);
+    console.log('Columns:', Object.keys(firstResult.value).length);
+    
+    // ============================================================
+    // STEP 2: Create table
+    // ============================================================
+    console.log('\n--- STEP 2: Creating Table ---');
+
+const columnDefs = [];
+
+for (const [colName, value] of Object.entries(firstResult.value)) {
+  const sanitizedColName = colName.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+  const sampleValues = sampleData.map(row => row[colName]);
+  
+  // Detect column type
+  let colType = 'TEXT'; // Default
+  const nonNullValues = sampleValues.filter(v => v != null && v !== '');
+  
+  if (nonNullValues.length > 0) {
+    const allNumbers = nonNullValues.every(v => {
+      const num = Number(v);
+      return !isNaN(num) && isFinite(num);
+    });
+    
+    if (allNumbers) {
+      const allIntegers = nonNullValues.every(v => Number.isInteger(Number(v)));
+      
+      if (allIntegers) {
+        // GUNAKAN BIGINT untuk semua integer (lebih aman)
+        colType = 'BIGINT';
+      } else {
+        colType = 'DOUBLE PRECISION';
+      }
+    } else {
+      const maxLen = Math.max(...nonNullValues.map(v => String(v).length));
+      colType = maxLen > 255 ? 'TEXT' : 'VARCHAR(255)';
+    }
+  }
+  
+  columnDefs.push(`${sanitizedColName} ${colType}`);
+}
+
+columnDefs.push('geom geometry(Geometry, 4326)');
+
+const createTableSQL = `
+  CREATE TABLE ${sanitizedTableName} (
+    gid SERIAL PRIMARY KEY,
+    ${columnDefs.join(',\n        ')}
+  )
+`;
+
+console.log('Creating table...');
+await client.query(createTableSQL);
+tableCreated = true;
+console.log('✓ Table created');
+    
+    // Create spatial index
+    await client.query(`
+      CREATE INDEX ${sanitizedTableName}_geom_idx 
+      ON ${sanitizedTableName} USING GIST (geom)
+    `);
+    console.log('✓ Spatial index created');
+    
+    // ============================================================
+    // STEP 3: Insert features ONE BY ONE
+    // ============================================================
+    console.log('\n--- STEP 3: Inserting Features ---');
+console.log('Method: ONE-BY-ONE with SAVEPOINT per insert');
+
+const COMMIT_INTERVAL = 50000;
+let inserted = 0;
+let skipped = 0;
+const errors = [];
+
+const source = await shapefile.open(shpFile.path, dbfFile.path);
+let result = await source.read();
+
+while (!result.done) {
+  const feature = result.value;
+  
+  if (feature && feature.geometry && feature.properties && feature.geometry.type) {
+    try {
+      // SAVEPOINT untuk setiap insert
+      await client.query('SAVEPOINT insert_feature');
+      
+      const cols = [];
+      const vals = [];
+      const placeholders = [];
+      let idx = 1;
+      
+      // Properties
+      for (const [colName, value] of Object.entries(feature.properties)) {
+        const sanitizedCol = colName.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+        cols.push(sanitizedCol);
+        
+        // Convert value
+        let convertedValue = value;
+        if (value == null || value === '') {
+          convertedValue = null;
+        } else if (typeof value === 'string' && !isNaN(Number(value)) && value.trim() !== '') {
+          convertedValue = Number(value);
+        }
+        
+        vals.push(convertedValue);
+        placeholders.push(`$${idx++}`);
+      }
+      
+      // Geometry
+      cols.push('geom');
+      vals.push(JSON.stringify(feature.geometry));
+      placeholders.push(`ST_SetSRID(ST_GeomFromGeoJSON($${idx}::json), 4326)`);
+      
+      const insertSQL = `
+        INSERT INTO ${sanitizedTableName} (${cols.join(', ')})
+        VALUES (${placeholders.join(', ')})
+      `;
+      
+      await client.query(insertSQL, vals);
+      await client.query('RELEASE SAVEPOINT insert_feature');
+      
+      inserted++;
+      
+      // Send progress setiap 1000 features
+      if (inserted % 1000 === 0) {
+        console.log(`  Progress: ${inserted} features inserted`);
+        // Kirim progress ke frontend (estimasi, karena kita tidak tahu total features)
+        // Gunakan formula logaritmik agar progress terlihat smooth
+        const estimatedProgress = Math.min(Math.round((inserted / (inserted + 10000)) * 95), 95);
+        sendProgress(sanitizedTableName, estimatedProgress, `${inserted.toLocaleString()} features inserted`);
+      }
+      
+      // COMMIT every 50000
+      if (inserted % COMMIT_INTERVAL === 0) {
+        await client.query('COMMIT');
+        await client.query('BEGIN');
+        console.log(`  💾 COMMIT at ${inserted} features`);
+        sendProgress(sanitizedTableName, Math.min(Math.round((inserted / (inserted + 10000)) * 95), 95), `${inserted.toLocaleString()} features - committing...`);
+        
+        if (global.gc) {
+          global.gc();
+        }
+      }
+      
+    } catch (err) {
+      // ROLLBACK to savepoint jika error
+      await client.query('ROLLBACK TO SAVEPOINT insert_feature');
+      
+      if (errors.length < 5) {
+        errors.push({ 
+          feature: inserted + skipped + 1, 
+          error: err.message,
+          sampleData: Object.entries(feature.properties).slice(0, 3).map(([k,v]) => `${k}=${v}`)
+        });
+      }
+      skipped++;
+      
+      // Jangan stop jika sudah ada yang berhasil
+      if (inserted === 0 && skipped > 100) {
+        throw new Error('Too many errors at start: ' + errors[0].error);
+      }
+    }
+  } else {
+    skipped++;
+  }
+  
+  result = await source.read();
+  
+  // Yield event loop
+  if ((inserted + skipped) % 1000 === 0) {
+    await new Promise(resolve => setImmediate(resolve));
+  }
+}
+
+console.log('\n✓ Insertion Complete');
+console.log('  Inserted:', inserted);
+console.log('  Skipped:', skipped);
+
+// Kirim progress final 100%
+sendProgress(sanitizedTableName, 100, `Completed: ${inserted.toLocaleString()} features inserted`, true);
+
+if (errors.length > 0) {
+  console.log('  Sample Errors:');
+  errors.forEach(e => {
+    console.log(`    Feature ${e.feature}: ${e.error}`);
+    if (e.sampleData) console.log(`      Sample: ${e.sampleData.join(', ')}`);
+  });
+}
+
+if (inserted === 0) {
+  throw new Error('No features inserted');
+}
+    
+    // ============================================================
+    // STEP 4: Save metadata
+    // ============================================================
+    console.log('\n--- STEP 4: Saving Metadata ---');
+    const metaResult = await client.query(`
+      INSERT INTO layer_metadata (table_name, section, original_files)
+      VALUES ($1, $2, $3)
+      RETURNING id, table_name, section, created_at
+    `, [sanitizedTableName, section, files.map(f => f.originalname)]);
+    
+    console.log('✓ Metadata saved');
+    
+    // Final COMMIT
+    await client.query('COMMIT');
+    console.log('✓ Final COMMIT');
+    
+    // Cleanup
+    uploadedFilePaths.forEach(fp => {
+      try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch {}
+    });
+    
+    if (global.gc) global.gc();
+    
+    console.log('\n========================================');
+    console.log('SUCCESS');
+    console.log('========================================\n');
+    
+    res.json({
+      success: true,
+      message: `Layer created: ${inserted} features`,
+      layer: {
+        id: metaResult.rows[0].id.toString(),
+        name: metaResult.rows[0].table_name,
+        section: metaResult.rows[0].section,
+        createdAt: metaResult.rows[0].created_at
+      },
+      featureCount: inserted,
+      skippedCount: skipped
+    });
+    
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('\n========================================');
+    console.error('ERROR:', error.message);
+    console.error('========================================\n');
+    
+    if (tableCreated && req.body.tableName) {
+      try {
+        const tbl = req.body.tableName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+        await client.query(`DROP TABLE IF EXISTS ${tbl} CASCADE`);
+      } catch {}
+    }
+    
+    uploadedFilePaths.forEach(fp => {
+      try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch {}
+    });
+    
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+// app.post('/api/layers', shapefileUpload.array('files'), async (req, res) => {
+//   console.log('\n========================================');
+//   console.log('START POST /api/layers (shp2pgsql method)');
+//   console.log('========================================');
+  
+//   const client = await pool.connect();
+//   let uploadedFilePaths = [];
+//   let tableCreated = false;
+//   let progressMonitor = null;
+//   let tempDir = null;
+  
+//   try {
+//     const { tableName, section } = req.body;
+//     const files = req.files;
+    
+//     console.log('Table Name:', tableName);
+//     console.log('Section:', section);
+//     console.log('Files Count:', files?.length);
+    
+//     // Validasi input
+//     if (!tableName || !section) {
+//       return res.status(400).json({ error: 'Table name and section are required' });
+//     }
+    
+//     if (!files || files.length === 0) {
+//       return res.status(400).json({ error: 'No files uploaded' });
+//     }
+    
+//     uploadedFilePaths = files.map(f => f.path);
+    
+//     // Cari .shp
+//     const shpFile = files.find(f => f.originalname.toLowerCase().endsWith('.shp'));
+    
+//     console.log('SHP File:', shpFile ? shpFile.originalname : 'NOT FOUND');
+//     console.log('All files:', files.map(f => f.originalname).join(', '));
+    
+//     if (!shpFile) {
+//       return res.status(400).json({ error: '.shp file is required' });
+//     }
+    
+//     // Sanitize table name
+//     const sanitizedTableName = tableName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+//     console.log('Sanitized Table Name:', sanitizedTableName);
+    
+//     // BEGIN transaction
+//     await client.query('BEGIN');
+//     console.log('Transaction: BEGIN');
+    
+//     // Check if table exists
+//     const tableCheck = await client.query(`
+//       SELECT EXISTS (
+//         SELECT FROM information_schema.tables 
+//         WHERE table_schema = 'public' AND table_name = $1
+//       )
+//     `, [sanitizedTableName]);
+    
+//     if (tableCheck.rows[0].exists) {
+//       await client.query('ROLLBACK');
+//       return res.status(400).json({ error: 'Table already exists: ' + sanitizedTableName });
+//     }
+    
+//     console.log('\n--- Using shp2pgsql Method ---');
+//     sendProgress(sanitizedTableName, 5, 'Preparing shapefile...');
+    
+//     // PENTING: Copy semua files ke satu folder dengan nama yang konsisten
+//     tempDir = path.join(__dirname, 'uploads', 'temp_' + Date.now());
+//     fs.mkdirSync(tempDir, { recursive: true });
+    
+//     const baseName = path.parse(shpFile.originalname).name; // Nama tanpa extension
+    
+//     console.log('Creating temp directory:', tempDir);
+//     console.log('Base name:', baseName);
+    
+//     // Copy dan rename files agar semuanya punya base name yang sama
+//     for (const file of files) {
+//       const ext = path.extname(file.originalname).toLowerCase();
+//       const newFileName = baseName + ext;
+//       const destPath = path.join(tempDir, newFileName);
+      
+//       fs.copyFileSync(file.path, destPath);
+//       console.log(`  Copied: ${file.originalname} -> ${newFileName}`);
+//     }
+    
+//     const tempShpPath = path.join(tempDir, baseName + '.shp');
+    
+//     // Verify files exist
+//     const requiredExts = ['.shp', '.shx', '.dbf'];
+//     for (const ext of requiredExts) {
+//       const filePath = path.join(tempDir, baseName + ext);
+//       if (!fs.existsSync(filePath)) {
+//         throw new Error(`Required file not found: ${baseName}${ext}`);
+//       }
+//       console.log(`  ✓ Found: ${baseName}${ext}`);
+//     }
+    
+//     sendProgress(sanitizedTableName, 10, 'Converting shapefile to SQL...');
+    
+//     // Build shp2pgsql command dengan path yang benar
+//     const shp2pgsqlCmd = `shp2pgsql -I -s 4326 -W UTF-8 "${tempShpPath}" ${sanitizedTableName}`;
+    
+//     console.log('Command:', shp2pgsqlCmd);
+//     console.log('Executing shp2pgsql...');
+    
+//     const { stdout: sqlOutput, stderr: shp2pgsqlError } = await execPromise(shp2pgsqlCmd, {
+//       maxBuffer: 1024 * 1024 * 1000, // 1GB buffer
+//       timeout: 600000 // 10 minutes timeout
+//     });
+    
+//     console.log('shp2pgsql stderr:', shp2pgsqlError);
+    
+//     // Check jika ada error critical
+//     if (shp2pgsqlError && shp2pgsqlError.includes('can not be opened')) {
+//       throw new Error('Shapefile cannot be opened: ' + shp2pgsqlError);
+//     }
+    
+//     console.log('✓ Shapefile converted to SQL');
+//     console.log('SQL size:', (sqlOutput.length / 1024 / 1024).toFixed(2), 'MB');
+    
+//     sendProgress(sanitizedTableName, 15, 'Executing SQL statements...');
+    
+//     // Start monitoring progress
+//     setTimeout(() => {
+//       console.log('Starting progress monitor...');
+//       progressMonitor = monitorTableInsertProgress(sanitizedTableName, 1500);
+//     }, 2000);
+    
+//     // Execute SQL via psql dengan timeout yang lebih lama
+//     console.log('Executing SQL via psql...');
+//     const startTime = Date.now();
+    
+//     await new Promise((resolve, reject) => {
+//       const psql = spawn('psql', [
+//         '-h', dbConfig.host,
+//         '-p', dbConfig.port.toString(),
+//         '-U', dbConfig.user,
+//         '-d', dbConfig.database,
+//         '-v', 'ON_ERROR_STOP=1'
+//       ], {
+//         env: { ...process.env, PGPASSWORD: dbConfig.password }
+//       });
+      
+//       // Pipe SQL output ke psql
+//       psql.stdin.write(sqlOutput);
+//       psql.stdin.end();
+      
+//       let errorOutput = '';
+//       let outputLines = 0;
+      
+//       psql.stdout.on('data', (data) => {
+//         outputLines++;
+//         if (outputLines % 1000 === 0) {
+//           console.log(`  Processed ${outputLines} lines...`);
+//         }
+//       });
+      
+//       psql.stderr.on('data', (data) => {
+//         const output = data.toString();
+//         console.log('psql output:', output.substring(0, 200)); // Log first 200 chars
+        
+//         // Count INSERT statements for progress
+//         if (output.includes('INSERT')) {
+//           const matches = output.match(/INSERT/g);
+//           if (matches) {
+//             console.log(`  INSERTs: ${matches.length}`);
+//           }
+//         }
+        
+//         if (!output.includes('INSERT') && !output.includes('CREATE') && !output.includes('NOTICE')) {
+//           errorOutput += output;
+//         }
+//       });
+      
+//       psql.on('close', (code) => {
+//         console.log(`psql exited with code ${code}`);
+//         if (code === 0) {
+//           resolve();
+//         } else {
+//           reject(new Error(`psql exited with code ${code}: ${errorOutput}`));
+//         }
+//       });
+      
+//       psql.on('error', (err) => {
+//         console.error('psql spawn error:', err);
+//         reject(err);
+//       });
+      
+//       // Timeout protection (1 hour)
+//       setTimeout(() => {
+//         psql.kill();
+//         reject(new Error('SQL execution timeout after 1 hour'));
+//       }, 3600000);
+//     });
+    
+//     const duration = Date.now() - startTime;
+    
+//     // Stop progress monitoring
+//     if (progressMonitor) {
+//       clearInterval(progressMonitor);
+//       progressMonitor = null;
+//     }
+    
+//     console.log(`✓ SQL executed successfully in ${Math.round(duration / 1000)}s`);
+//     sendProgress(sanitizedTableName, 96, 'Saving metadata...');
+    
+//     tableCreated = true;
+    
+//     // Get actual feature count
+//     const countResult = await client.query(`SELECT COUNT(*) as count FROM ${sanitizedTableName}`);
+//     const featureCount = parseInt(countResult.rows[0].count);
+    
+//     console.log(`✓ Total features: ${featureCount.toLocaleString()}`);
+    
+//     // Save metadata
+//     console.log('\n--- Saving Metadata ---');
+//     const metaResult = await client.query(`
+//       INSERT INTO layer_metadata (table_name, section, original_files)
+//       VALUES ($1, $2, $3)
+//       RETURNING id, table_name, section, created_at
+//     `, [sanitizedTableName, section, files.map(f => f.originalname)]);
+    
+//     console.log('✓ Metadata saved');
+    
+//     // Final COMMIT
+//     await client.query('COMMIT');
+//     console.log('✓ Final COMMIT');
+    
+//     // Cleanup
+//     uploadedFilePaths.forEach(fp => {
+//       try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch {}
+//     });
+    
+//     if (tempDir) {
+//       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+//     }
+    
+//     if (global.gc) global.gc();
+    
+//     sendProgress(sanitizedTableName, 100, `Completed: ${featureCount.toLocaleString()} features`, true);
+    
+//     console.log('\n========================================');
+//     console.log('SUCCESS');
+//     console.log(`Features: ${featureCount.toLocaleString()}`);
+//     console.log(`Duration: ${Math.round(duration / 1000)}s`);
+//     console.log('========================================\n');
+    
+//     res.json({
+//       success: true,
+//       message: `Layer created: ${featureCount.toLocaleString()} features in ${Math.round(duration / 1000)}s`,
+//       layer: {
+//         id: metaResult.rows[0].id.toString(),
+//         name: metaResult.rows[0].table_name,
+//         section: metaResult.rows[0].section,
+//         createdAt: metaResult.rows[0].created_at
+//       },
+//       featureCount: featureCount,
+//       skippedCount: 0,
+//       duration: duration
+//     });
+    
+//   } catch (error) {
+//     // Stop progress monitoring jika error
+//     if (progressMonitor) {
+//       clearInterval(progressMonitor);
+//     }
+    
+//     await client.query('ROLLBACK');
+//     console.error('\n========================================');
+//     console.error('ERROR:', error.message);
+//     console.error('Stack:', error.stack);
+//     console.error('========================================\n');
+    
+//     if (tableCreated && req.body.tableName) {
+//       try {
+//         const tbl = req.body.tableName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+//         await client.query(`DROP TABLE IF EXISTS ${tbl} CASCADE`);
+//         console.log('✓ Rolled back table creation');
+//       } catch (cleanupErr) {
+//         console.error('Error during cleanup:', cleanupErr.message);
+//       }
+//     }
+    
+//     uploadedFilePaths.forEach(fp => {
+//       try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch {}
+//     });
+    
+//     if (tempDir) {
+//       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+//     }
+    
+//     sendProgress(req.body.tableName || 'unknown', 0, 'Error: ' + error.message, true);
+    
+//     res.status(500).json({ error: error.message });
+//   } finally {
+//     client.release();
+//   }
+// });
+
+// Endpoint untuk delete layer
+app.delete('/api/layers/:id', async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    const { id } = req.params;
+    
+    await client.query('BEGIN');
+    
+    // Get table name before deleting
+    const metadataResult = await client.query(
+      'SELECT table_name FROM layer_metadata WHERE id = $1',
+      [id]
+    );
+    
+    if (metadataResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Layer not found' });
+    }
+    
+    const tableName = metadataResult.rows[0].table_name;
+    
+    // Drop the actual table
+    await client.query(`DROP TABLE IF EXISTS ${tableName} CASCADE`);
+    
+    // Delete metadata
+    await client.query('DELETE FROM layer_metadata WHERE id = $1', [id]);
+    
+    await client.query('COMMIT');
+    
+    res.json({ success: true, message: 'Layer deleted successfully' });
+    
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error deleting layer:', error);
+    res.status(500).json({ error: 'Failed to delete layer' });
+  } finally {
+    client.release();
+  }
+});
+
+app.get('/api/layers/progress/:tableName', (req, res) => {
+  const { tableName } = req.params;
+  
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  // Simpan client untuk table name ini
+  if (!progressClients.has(tableName)) {
+    progressClients.set(tableName, []);
+  }
+  progressClients.get(tableName).push(res);
+
+  console.log(`SSE client connected for ${tableName}`);
+
+  req.on('close', () => {
+    console.log(`SSE client disconnected for ${tableName}`);
+    const clients = progressClients.get(tableName);
+    if (clients) {
+      const index = clients.indexOf(res);
+      if (index > -1) {
+        clients.splice(index, 1);
+      }
+      if (clients.length === 0) {
+        progressClients.delete(tableName);
+      }
+    }
+  });
+});
+
+// Helper function untuk send progress update
+function sendProgress(tableName, progress, status, done = false) {
+  const clients = progressClients.get(tableName);
+  if (clients && clients.length > 0) {
+    const data = JSON.stringify({ progress, status, done });
+    clients.forEach(client => {
+      client.write(`data: ${data}\n\n`);
+    });
+    console.log(`Progress sent for ${tableName}: ${progress}% - ${status}`);
+  }
+}
+
+app.get('/api/layers/:tableName/geojson', async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    const { tableName } = req.params;
+    const { bounds, zoom } = req.query;
+    
+    // Validate table name untuk keamanan
+    const validationResult = await client.query(
+      `SELECT table_name FROM layer_metadata WHERE table_name = $1`,
+      [tableName]
+    );
+    
+    if (validationResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Layer not found' });
+    }
+    
+    // Get all columns except geom
+    const columnsResult = await client.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = $1 AND column_name != 'geom'
+      ORDER BY ordinal_position
+    `, [tableName]);
+    
+    // Build properties selection - batasi hanya kolom penting
+    const propsSelect = columnsResult.rows
+      .slice(0, 10) // Ambil maksimal 10 kolom pertama untuk mengurangi ukuran data
+      .map(r => `'${r.column_name}', ${r.column_name}`)
+      .join(', ');
+    
+    // Tentukan toleransi simplifikasi berdasarkan zoom level
+    const zoomLevel = zoom ? parseInt(zoom) : 5;
+    let tolerance;
+    if (zoomLevel <= 5) tolerance = 0.01;      // Zoom out banyak - simplifikasi agresif
+    else if (zoomLevel <= 8) tolerance = 0.005;
+    else if (zoomLevel <= 11) tolerance = 0.001;
+    else tolerance = 0.0001;                    // Zoom in - detail lebih tinggi
+    
+    // Build WHERE clause dengan bounds jika ada
+    let whereClause = 'WHERE geom IS NOT NULL';
+    if (bounds) {
+      const [south, west, north, east] = bounds.split(',').map(Number);
+      const boundsWKT = `POLYGON((${west} ${south}, ${east} ${south}, ${east} ${north}, ${west} ${north}, ${west} ${south}))`;
+      whereClause += ` AND ST_Intersects(geom, ST_GeomFromText('${boundsWKT}', 4326))`;
+    }
+    
+    // Tentukan limit berdasarkan zoom
+    const limit = zoomLevel <= 8 ? 15000 : zoomLevel <= 11 ? 18000 : 20000;
+    
+    // Query dengan simplifikasi geometri untuk performa
+    const query = `
+      SELECT 
+        ST_AsGeoJSON(ST_Simplify(geom, ${tolerance})) as geometry,
+        json_build_object(${propsSelect}) as properties
+      FROM ${tableName}
+      ${whereClause}
+      LIMIT ${limit}
+    `;
+    
+    console.log(`Query for ${tableName}: zoom=${zoomLevel}, tolerance=${tolerance}, limit=${limit}`);
+    
+    const result = await client.query(query);
+    
+    // Build GeoJSON manually
+    const features = result.rows.map(row => ({
+      type: 'Feature',
+      geometry: JSON.parse(row.geometry),
+      properties: row.properties
+    }));
+    
+    const geojson = {
+      type: 'FeatureCollection',
+      features: features
+    };
+    
+    console.log(`Returning ${features.length} features for ${tableName}`);
+    res.json(geojson);
+    
+  } catch (error) {
+    console.error('Error fetching GeoJSON:', error);
+    res.status(500).json({ error: 'Failed to fetch layer data: ' + error.message });
+  } finally {
+    client.release();
   }
 });
 
