@@ -107,7 +107,11 @@ const Kebencanaan = () => {
           thumbnailPreview: URL.createObjectURL(file)
         }));
       } else if (name === 'images') {
-        setFormData(prev => ({ ...prev, images: Array.from(files) }));
+        // Gabungkan file baru dengan file yang sudah ada sebelumnya
+        setFormData(prev => ({ 
+          ...prev, 
+          images: [...prev.images, ...Array.from(files)] 
+        }));
       }
     }
   };
