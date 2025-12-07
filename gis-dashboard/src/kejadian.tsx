@@ -32,68 +32,129 @@ const Kebencanaan = () => {
 
   // Form data untuk modal tambah kejadian
   const [formData, setFormData] = useState({
-    thumbnail: null,
-    thumbnailPreview: null,
-    images: [],
-    title: '',
-    description: '',
-    incidentDate: '',
-    lokasi: '',
-    disasterType: '',
-    das: '',
-    longitude: '',
-    latitude: '',
-    featured: true  // TAMBAHAN: default true
-  });
+  thumbnail: null,
+  thumbnailPreview: null,
+  images: [],
+  title: '',
+  description: '',
+  incidentDate: '',
+  lokasi: '',
+  disasterType: '',
+  das: '',
+  longitude: '',
+  latitude: '',
+  featured: true
+});
+
+// Tambahkan state untuk DAS options
+const [dasOptions, setDasOptions] = useState<string[]>([]);
+const [isLoadingDas, setIsLoadingDas] = useState(false);
 
   const reverseGeocode = async (lat, lon) => {
-    if (!lat || !lon) return;
-    
-    try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1&accept-language=id`,
-        {
-          headers: {
-            'User-Agent': 'KejadianBencanaApp/1.0'
-          }
+  if (!lat || !lon) return;
+  
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1&accept-language=id`,
+      {
+        headers: {
+          'User-Agent': 'KejadianBencanaApp/1.0'
         }
-      );
-      const data = await response.json();
-      
-      if (data.address) {
-        const village = data.address.village || data.address.suburb || '';
-        const district = data.address.county || '';
-        const city = data.address.city || data.address.town || data.address.city_district || '';
-        const province = data.address.state || '';
-        
-        const lokasi = [village, district, city, province]
-          .filter(Boolean)
-          .join(', ');
-        
-        setFormData(prev => ({ ...prev, lokasi }));
       }
-    } catch (error) {
-      console.error('Reverse geocoding error:', error);
+    );
+    const data = await response.json();
+    
+    if (data.address) {
+      const village = data.address.village || data.address.suburb || '';
+      const district = data.address.county || '';
+      const city = data.address.city || data.address.town || data.address.city_district || '';
+      const province = data.address.state || '';
+      
+      const lokasi = [village, district, city, province]
+        .filter(Boolean)
+        .join(', ');
+      
+      setFormData(prev => ({ ...prev, lokasi }));
+      
+      // Fetch DAS berdasarkan lokasi
+      await fetchDasByLocation(district, city, province);
     }
-  };
+  } catch (error) {
+    console.error('Reverse geocoding error:', error);
+  }
+};
+
+// Fungsi untuk fetch DAS berdasarkan lokasi
+const fetchDasByLocation = async (kecamatan: string, kabupaten: string, provinsi: string) => {
+  if (!kecamatan && !kabupaten && !provinsi) {
+    setDasOptions([]);
+    return;
+  }
+  
+  try {
+    setIsLoadingDas(true);
+    
+    // Build query params
+    const params = new URLSearchParams();
+    if (kecamatan) params.append('kecamatan', kecamatan);
+    if (kabupaten) params.append('kabupaten', kabupaten);
+    if (provinsi) params.append('provinsi', provinsi);
+    
+    const response = await fetch(`${API_URL}/api/das/by-location?${params.toString()}`);
+    const data = await response.json();
+    
+    if (data.dasList && data.dasList.length > 0) {
+      setDasOptions(data.dasList);
+      
+      // Auto-select jika hanya ada 1 option
+      if (data.dasList.length === 1) {
+        setFormData(prev => ({ ...prev, das: data.dasList[0] }));
+      }
+    } else {
+      setDasOptions([]);
+    }
+    
+  } catch (error) {
+    console.error('Error fetching DAS:', error);
+    setDasOptions([]);
+  } finally {
+    setIsLoadingDas(false);
+  }
+};
   // Handle modal form input change
   const handleModalInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+  const { name, value } = e.target;
+  setFormData(prev => ({ ...prev, [name]: value }));
+  
+  // Auto-fill lokasi saat longitude/latitude berubah
+  if (name === 'longitude' || name === 'latitude') {
+    const lat = name === 'latitude' ? value : formData.latitude;
+    const lon = name === 'longitude' ? value : formData.longitude;
     
-    // Auto-fill lokasi saat longitude/latitude berubah
-    if (name === 'longitude' || name === 'latitude') {
-      const lat = name === 'latitude' ? value : formData.latitude;
-      const lon = name === 'longitude' ? value : formData.longitude;
+    clearTimeout(window.geocodeTimeout);
+    window.geocodeTimeout = setTimeout(() => {
+      if (lat && lon) {
+        reverseGeocode(lat, lon);
+      }
+    }, 500);
+  }
+  
+  // Re-fetch DAS jika lokasi diubah manual
+  if (name === 'lokasi' && value) {
+    // Parse lokasi: "kecamatan, kabupaten, provinsi"
+    const parts = value.split(',').map(s => s.trim());
+    if (parts.length >= 2) {
+      const kecamatan = parts[0] || '';
+      const kabupaten = parts[1] || '';
+      const provinsi = parts[2] || '';
       
-      clearTimeout(window.geocodeTimeout);
-      window.geocodeTimeout = setTimeout(() => {
-        if (lat && lon) {
-          reverseGeocode(lat, lon);
-        }
+      clearTimeout(window.dasTimeout);
+      window.dasTimeout = setTimeout(() => {
+        fetchDasByLocation(kecamatan, kabupaten, provinsi);
       }, 500);
     }
-  };
+  }
+};
 
   // Handle modal file change
   const handleModalFileChange = (e) => {
@@ -194,6 +255,8 @@ const Kebencanaan = () => {
           latitude: '',
           featured: true
         });
+        setDasOptions([]);
+        setIsLoadingDas(false);
         fetchIncidents();
       } else {
         alert('Gagal menambahkan kejadian: ' + data.message);
@@ -1838,7 +1901,27 @@ if (filteredForMarkers.length > 0 && !mapBounds) {
         <div className="bg-white rounded-lg p-6 w-full max-w-2xl shadow-lg my-8" onClick={(e) => e.stopPropagation()}>
           <div className="flex justify-between items-center mb-4 pb-3 border-b border-gray-200">
             <h3 className="text-xl font-semibold text-gray-800">Tambah Laporan Bencana</h3>
-            <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+            <button onClick={() => {
+    setShowAddModal(false);
+    // Reset form data
+    setFormData({
+      thumbnail: null,
+      thumbnailPreview: null,
+      images: [],
+      title: '',
+      description: '',
+      incidentDate: '',
+      lokasi: '',
+      disasterType: '',
+      das: '',
+      longitude: '',
+      latitude: '',
+      featured: true
+    });
+    // Reset DAS options
+    setDasOptions([]);
+    setIsLoadingDas(false);
+  }}  className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
           </div>
           
           <form onSubmit={handleModalSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
@@ -2067,14 +2150,43 @@ if (filteredForMarkers.length > 0 && !mapBounds) {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">DAS</label>
-                <input
-                  type="text"
-                  name="das"
-                  value={formData.das}
-                  onChange={handleModalInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+    DAS {dasOptions.length > 0 && `(${dasOptions.length} tersedia)`}
+  </label>
+  {isLoadingDas ? (
+    <div className="w-full px-3 py-2 text-sm border border-gray-300 rounded bg-gray-50 text-gray-500">
+      Memuat DAS...
+    </div>
+  ) : dasOptions.length > 0 ? (
+    <select
+      name="das"
+      value={formData.das}
+      onChange={handleModalInputChange}
+      className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:border-blue-500"
+      required
+    >
+      <option value="">Pilih DAS</option>
+      {dasOptions.map((das, index) => (
+        <option key={index} value={das}>
+          {das}
+        </option>
+      ))}
+    </select>
+  ) : (
+    <div className="space-y-2">
+      <input
+        type="text"
+        name="das"
+        value={formData.das}
+        onChange={handleModalInputChange}
+        placeholder="DAS tidak ditemukan, masukkan manual"
+        className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:border-blue-500"
+      />
+      <p className="text-xs text-gray-500">
+        * DAS tidak ditemukan untuk lokasi ini. Silakan masukkan manual atau isi koordinat terlebih dahulu.
+      </p>
+    </div>
+  )}
               </div>
             </div>
             
@@ -2101,7 +2213,27 @@ if (filteredForMarkers.length > 0 && !mapBounds) {
 
             {/* Submit Buttons */}
             <div className="flex gap-3 pt-4 border-t border-gray-200">
-              <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition">
+              <button 
+              onClick={() => {
+                setShowAddModal(false);
+                setFormData({
+                  thumbnail: null,
+                  thumbnailPreview: null,
+                  images: [],
+                  title: '',
+                  description: '',
+                  incidentDate: '',
+                  lokasi: '',
+                  disasterType: '',
+                  das: '',
+                  longitude: '',
+                  latitude: '',
+                  featured: true
+                });
+                setDasOptions([]); // Tambahkan ini
+                setIsLoadingDas(false); // Tambahkan ini
+              }}
+              type="button" className="flex-1 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition">
                 Batal
               </button>
               <button type="submit" className="flex-1 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition">
