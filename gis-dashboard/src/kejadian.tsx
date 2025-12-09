@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { API_URL } from './api';
+import {API_URL} from './api';
 
 const Kebencanaan = () => {
   const mapRef = useRef(null);
@@ -76,57 +76,55 @@ const [isLoadingDas, setIsLoadingDas] = useState(false);
       
       setFormData(prev => ({ ...prev, lokasi }));
       
-      // Fetch DAS berdasarkan lokasi
-      await fetchDasByLocation(district, city, province);
+      // Fetch DAS berdasarkan koordinat (bukan lokasi)
+      await fetchDasByCoordinates(lon, lat);
     }
   } catch (error) {
     console.error('Reverse geocoding error:', error);
   }
 };
 
-// Fungsi untuk fetch DAS berdasarkan lokasi
-const fetchDasByLocation = async (kecamatan: string, kabupaten: string, provinsi: string) => {
-  if (!kecamatan && !kabupaten && !provinsi) {
-    setDasOptions([]);
+const fetchDasByCoordinates = async (longitude: number, latitude: number) => {
+  if (!longitude || !latitude) {
+    setFormData(prev => ({ ...prev, das: '' }));
     return;
   }
   
   try {
     setIsLoadingDas(true);
     
-    // Build query params
-    const params = new URLSearchParams();
-    if (kecamatan) params.append('kecamatan', kecamatan);
-    if (kabupaten) params.append('kabupaten', kabupaten);
-    if (provinsi) params.append('provinsi', provinsi);
+    const response = await fetch(
+      `${API_URL}/api/das/by-coordinates?longitude=${longitude}&latitude=${latitude}`
+    );
     
-    const response = await fetch(`${API_URL}/api/das/by-location?${params.toString()}`);
     const data = await response.json();
     
-    if (data.dasList && data.dasList.length > 0) {
-      setDasOptions(data.dasList);
+    if (data.success && data.das) {
+      console.log('DAS found for coordinates:', data.das);
+      setFormData(prev => ({ ...prev, das: data.das }));
       
-      // Auto-select jika hanya ada 1 option
-      if (data.dasList.length === 1) {
-        setFormData(prev => ({ ...prev, das: data.dasList[0] }));
+      if (data.isNearest) {
+        console.log('Note: Using nearest DAS (point outside all DAS polygons)');
       }
     } else {
-      setDasOptions([]);
+      console.log('No DAS found for coordinates');
+      setFormData(prev => ({ ...prev, das: '' }));
     }
     
   } catch (error) {
-    console.error('Error fetching DAS:', error);
-    setDasOptions([]);
+    console.error('Error fetching DAS by coordinates:', error);
+    setFormData(prev => ({ ...prev, das: '' }));
   } finally {
     setIsLoadingDas(false);
   }
 };
+
   // Handle modal form input change
   const handleModalInputChange = (e) => {
   const { name, value } = e.target;
   setFormData(prev => ({ ...prev, [name]: value }));
   
-  // Auto-fill lokasi saat longitude/latitude berubah
+  // Auto-fill lokasi dan DAS saat longitude/latitude berubah
   if (name === 'longitude' || name === 'latitude') {
     const lat = name === 'latitude' ? value : formData.latitude;
     const lon = name === 'longitude' ? value : formData.longitude;
@@ -134,25 +132,16 @@ const fetchDasByLocation = async (kecamatan: string, kabupaten: string, provinsi
     clearTimeout(window.geocodeTimeout);
     window.geocodeTimeout = setTimeout(() => {
       if (lat && lon) {
-        reverseGeocode(lat, lon);
+        const latNum = parseFloat(lat);
+        const lonNum = parseFloat(lon);
+        
+        if (!isNaN(latNum) && !isNaN(lonNum)) {
+          // Reverse geocode untuk lokasi
+          reverseGeocode(latNum, lonNum);
+          // Fetch DAS berdasarkan koordinat sudah dipanggil dalam reverseGeocode
+        }
       }
     }, 500);
-  }
-  
-  // Re-fetch DAS jika lokasi diubah manual
-  if (name === 'lokasi' && value) {
-    // Parse lokasi: "kecamatan, kabupaten, provinsi"
-    const parts = value.split(',').map(s => s.trim());
-    if (parts.length >= 2) {
-      const kecamatan = parts[0] || '';
-      const kabupaten = parts[1] || '';
-      const provinsi = parts[2] || '';
-      
-      clearTimeout(window.dasTimeout);
-      window.dasTimeout = setTimeout(() => {
-        fetchDasByLocation(kecamatan, kabupaten, provinsi);
-      }, 500);
-    }
   }
 };
 
@@ -2150,44 +2139,24 @@ if (filteredForMarkers.length > 0 && !mapBounds) {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-    DAS {dasOptions.length > 0 && `(${dasOptions.length} tersedia)`}
+  <label className="block text-sm font-medium text-gray-700 mb-2">
+    DAS
+    {isLoadingDas && (
+      <span className="ml-2 text-xs text-gray-500">(Mengisi otomatis...)</span>
+    )}
   </label>
-  {isLoadingDas ? (
-    <div className="w-full px-3 py-2 text-sm border border-gray-300 rounded bg-gray-50 text-gray-500">
-      Memuat DAS...
-    </div>
-  ) : dasOptions.length > 0 ? (
-    <select
-      name="das"
-      value={formData.das}
-      onChange={handleModalInputChange}
-      className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:border-blue-500"
-      required
-    >
-      <option value="">Pilih DAS</option>
-      {dasOptions.map((das, index) => (
-        <option key={index} value={das}>
-          {das}
-        </option>
-      ))}
-    </select>
-  ) : (
-    <div className="space-y-2">
-      <input
-        type="text"
-        name="das"
-        value={formData.das}
-        onChange={handleModalInputChange}
-        placeholder="DAS tidak ditemukan, masukkan manual"
-        className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:border-blue-500"
-      />
-      <p className="text-xs text-gray-500">
-        * DAS tidak ditemukan untuk lokasi ini. Silakan masukkan manual atau isi koordinat terlebih dahulu.
-      </p>
-    </div>
-  )}
-              </div>
+  <input
+    type="text"
+    name="das"
+    value={formData.das}
+    onChange={handleModalInputChange}
+    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+    placeholder="DAS akan terisi otomatis berdasarkan koordinat"
+  />
+  <p className="text-xs text-gray-500 mt-1">
+    DAS terisi otomatis dari koordinat, tetapi dapat diedit manual
+  </p>
+</div>
             </div>
             
             {/* Featured Toggle */}

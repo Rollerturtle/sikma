@@ -10789,21 +10789,41 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
       });
     }
     
-    // Query spatial untuk mencari DAS yang mengandung titik koordinat
+    console.log('Querying DAS for coordinates:', { longitude: lon, latitude: lat });
+    
+    // Query yang lebih aman - cek SRID dan set jika perlu
     const query = `
       SELECT 
         nama_das,
-        ST_Distance(
-          geom::geography,
-          ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
-        ) as distance
+        CASE 
+          WHEN ST_SRID(geom) = 0 OR ST_SRID(geom) IS NULL THEN
+            ST_Distance(
+              ST_Transform(ST_SetSRID(geom, 4326), 4326)::geography,
+              ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
+            )
+          ELSE
+            ST_Distance(
+              geom::geography,
+              ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
+            )
+        END as distance
       FROM das_adm
-      WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326))
+      WHERE 
+        CASE 
+          WHEN ST_SRID(geom) = 0 OR ST_SRID(geom) IS NULL THEN
+            ST_Contains(
+              ST_SetSRID(geom, 4326),
+              ST_SetSRID(ST_MakePoint($1, $2), 4326)
+            )
+          ELSE
+            ST_Contains(
+              geom,
+              ST_SetSRID(ST_MakePoint($1, $2), 4326)
+            )
+        END
       ORDER BY distance
       LIMIT 1
     `;
-    
-    console.log('Querying DAS for coordinates:', { longitude: lon, latitude: lat });
     
     const result = await client.query(query, [lon, lat]);
     
@@ -10814,15 +10834,22 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
         das: result.rows[0].nama_das
       });
     } else {
-      // Jika tidak ada DAS yang mengandung titik (koordinat di luar semua DAS)
       // Cari DAS terdekat
       const nearestQuery = `
         SELECT 
           nama_das,
-          ST_Distance(
-            geom::geography,
-            ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
-          ) as distance
+          CASE 
+            WHEN ST_SRID(geom) = 0 OR ST_SRID(geom) IS NULL THEN
+              ST_Distance(
+                ST_Transform(ST_SetSRID(geom, 4326), 4326)::geography,
+                ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
+              )
+            ELSE
+              ST_Distance(
+                geom::geography,
+                ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
+              )
+          END as distance
         FROM das_adm
         ORDER BY distance
         LIMIT 1
@@ -10831,7 +10858,8 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
       const nearestResult = await client.query(nearestQuery, [lon, lat]);
       
       if (nearestResult.rows.length > 0) {
-        console.log('No DAS contains point, returning nearest:', nearestResult.rows[0].nama_das);
+        const distanceKm = (nearestResult.rows[0].distance / 1000).toFixed(2);
+        console.log(`No DAS contains point, returning nearest: ${nearestResult.rows[0].nama_das} (${distanceKm} km away)`);
         res.json({
           success: true,
           das: nearestResult.rows[0].nama_das,
