@@ -13,6 +13,7 @@ const Kerawanan = () => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [activeLayers, setActiveLayers] = useState<Set<string>>(new Set());
   const [isLoadingLayer, setIsLoadingLayer] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [selectedAreas, setSelectedAreas] = useState<Array<{
     label: string;
     level: 'provinsi' | 'kabupaten' | 'kecamatan' | 'kelurahan';
@@ -64,6 +65,21 @@ const [availableLayers, setAvailableLayers] = useState<{
   const [currentSection, setCurrentSection] = useState<'kerawanan' | 'mitigasiAdaptasi' | 'lainnya'>('kerawanan');
   const [newLayerName, setNewLayerName] = useState('');
   const [layerToDelete, setLayerToDelete] = useState<{section: string, id: string, name: string} | null>(null);
+  const [tutupanLahanData, setTutupanLahanData] = useState<Array<{
+    pl2024_id: number;
+    deskripsi_domain: string;
+    count: number;
+  }>>([]);
+
+  const [kejadianPhotos, setKejadianPhotos] = useState<Array<{
+    id: number;
+    path: string;
+    incident_type: string;
+    incident_date: string;
+    title: string;
+    latitude: number;
+    longitude: number;
+  }>>([]);
 
   const loadLayerInBounds = async (tableName: string) => {
   if (!mapInstanceRef.current || !window.L) {
@@ -159,6 +175,10 @@ const [availableLayers, setAvailableLayers] = useState<{
     layerGroup.addTo(mapInstanceRef.current);
     layerGroupsRef.current[tableName] = layerGroup;
     
+    if (tableName === 'tutupan_lahan') {
+      await fetchTutupanLahanData();
+    }
+
     const boundsType = currentBounds ? 'administrative bounds' : 'Indonesia bounds (all data)';
     console.log(`Layer loaded successfully with ${boundsType}`);
     
@@ -186,7 +206,150 @@ const [availableLayers, setAvailableLayers] = useState<{
   }
 };
 
-const loadKejadianLayer = async (layerName: string, year: number) => {
+useEffect(() => {
+  const checkExistingSession = async () => {
+    const token = localStorage.getItem('adminToken');
+    const userStr = localStorage.getItem('adminUser');
+    
+    if (token && userStr) {
+      try {
+        const response = await fetch(`${API_URL}/api/admin/verify`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        const data = await response.json();
+        
+        if (data.success) {
+          setIsAuthenticated(true);
+        } else {
+          localStorage.removeItem('adminToken');
+          localStorage.removeItem('adminUser');
+          setIsAuthenticated(false);
+        }
+      } catch (error) {
+        console.error('Token verification failed:', error);
+        localStorage.removeItem('adminToken');
+        localStorage.removeItem('adminUser');
+        setIsAuthenticated(false);
+      }
+    }
+  };
+
+  checkExistingSession();
+}, []);
+
+// Handle logout
+const handleLogout = () => {
+  localStorage.removeItem('adminToken');
+  localStorage.removeItem('adminUser');
+  setIsAuthenticated(false);
+};
+
+const fetchTutupanLahanData = async () => {
+  if (!mapInstanceRef.current) return;
+  
+  try {
+    let boundsString = '';
+    
+    if (currentBounds) {
+      const [[minLat, minLng], [maxLat, maxLng]] = currentBounds;
+      boundsString = `${minLat},${minLng},${maxLat},${maxLng}`;
+    } else {
+      boundsString = '-11,95,6,141';
+    }
+    
+    const dasFilter = selectedDas.length > 0 ? selectedDas.map(d => d.nama_das) : null;
+    const dasFilterParam = dasFilter ? `&dasFilter=${encodeURIComponent(JSON.stringify(dasFilter))}` : '';
+    
+    const response = await fetch(
+      `${API_URL}/api/tutupan-lahan/data?bounds=${boundsString}${dasFilterParam}`
+    );
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      setTutupanLahanData(result.data);
+    }
+  } catch (error) {
+    console.error('Error fetching tutupan lahan data:', error);
+    setTutupanLahanData([]);
+  }
+};
+
+const fetchKejadianPhotos = async () => {
+  if (!mapInstanceRef.current) {
+    console.log('Map not ready, cannot fetch photos');
+    return;
+  }
+  
+  // Ambil semua layer kejadian yang aktif
+  const activeKejadianLayers = Array.from(activeLayers).filter(layer => layer.startsWith('kejadian_'));
+  
+  console.log('Fetching photos for active kejadian layers:', activeKejadianLayers);
+  
+  if (activeKejadianLayers.length === 0) {
+    console.log('No active kejadian layers');
+    setKejadianPhotos([]);
+    return;
+  }
+  
+  try {
+    let boundsString = '';
+    
+    if (currentBounds) {
+      const [[minLat, minLng], [maxLat, maxLng]] = currentBounds;
+      boundsString = `${minLat},${minLng},${maxLat},${maxLng}`;
+    } else {
+      boundsString = '-11,95,6,141';
+    }
+    
+    const dasFilter = selectedDas.length > 0 ? selectedDas.map(d => d.nama_das) : null;
+    const dasFilterParam = dasFilter ? `&dasFilter=${encodeURIComponent(JSON.stringify(dasFilter))}` : '';
+    
+    console.log('Fetching photos with bounds:', boundsString, 'dasFilter:', dasFilter);
+    
+    // Fetch photos untuk setiap tahun yang aktif
+    const allPhotos: typeof kejadianPhotos = [];
+    
+    for (const layerName of activeKejadianLayers) {
+      const year = parseInt(layerName.replace('kejadian_', ''));
+      
+      console.log(`Fetching photos for year ${year}...`);
+      
+      const response = await fetch(
+        `${API_URL}/api/kejadian/photos?year=${year}&bounds=${boundsString}${dasFilterParam}`
+      );
+      
+      if (!response.ok) {
+        console.error(`Failed to fetch photos for year ${year}:`, response.status);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      
+      if (result.success && result.photos) {
+        console.log(`Received ${result.photos.length} photos for year ${year}`);
+        allPhotos.push(...result.photos);
+      }
+    }
+    
+    console.log('Total kejadian photos fetched:', allPhotos.length);
+    setKejadianPhotos(allPhotos);
+  } catch (error) {
+    console.error('Error fetching kejadian photos:', error);
+    setKejadianPhotos([]);
+  }
+};
+
+const loadKejadianLayer = async (layerName: string, year: number, forceDasFilter?: string[] | null) => {
   if (!mapInstanceRef.current || !window.L) {
     console.log('Map not ready');
     return;
@@ -199,14 +362,17 @@ const loadKejadianLayer = async (layerName: string, year: number) => {
       const [[minLat, minLng], [maxLat, maxLng]] = currentBounds;
       boundsString = `${minLat},${minLng},${maxLat},${maxLng}`;
     } else {
-      boundsString = '-11,95,6,141'; // Indonesia bounds
+      boundsString = '-11,95,6,141';
     }
     
-    // TAMBAH: Kirim dasFilter jika ada
-    const dasFilter = selectedDas.length > 0 ? selectedDas.map(d => d.nama_das) : null;
+    // Gunakan forceDasFilter jika ada, jika tidak gunakan selectedDas
+    const dasFilter = forceDasFilter !== undefined 
+      ? forceDasFilter 
+      : (selectedDas.length > 0 ? selectedDas.map(d => d.nama_das) : null);
     const dasFilterParam = dasFilter ? `&dasFilter=${encodeURIComponent(JSON.stringify(dasFilter))}` : '';
     
     console.log('Loading kejadian layer:', layerName, 'year:', year, 'bounds:', boundsString, 'dasFilter:', dasFilter);
+    console.log('Full URL:', `${API_URL}/api/kejadian/by-year/${year}?bounds=${boundsString}${dasFilterParam}`);
     
     const response = await fetch(
       `${API_URL}/api/kejadian/by-year/${year}?bounds=${boundsString}${dasFilterParam}`
@@ -375,6 +541,8 @@ const loadKejadianLayer = async (layerName: string, year: number) => {
     
     console.log('Kejadian layer loaded successfully');
     
+    await fetchKejadianPhotos();
+
   } catch (error) {
     console.error('Error loading kejadian layer:', error);
   }
@@ -461,11 +629,21 @@ const handleRemoveDas = async (index: number) => {
     // Clear selected areas juga
     setSelectedAreas([]);
     
+     const kejadianResponse = await fetch(`${API_URL}/api/kejadian/years`);
+    const kejadianData = await kejadianResponse.json();
+      
+    const allKejadianLayers = kejadianData.years.map((year: number) => ({
+      id: `kejadian_${year}`,
+      name: `kejadian_${year}`,
+      year: year
+    }));
+
+    // Reset availableLayers ke semua layer termasuk semua tahun kejadian
     setAvailableLayers({ 
       kerawanan: layerData.kerawanan || [], 
       mitigasiAdaptasi: layerData.mitigasiAdaptasi || [], 
       lainnya: layerData.lainnya || [],
-      kejadian: layerData.kejadian || []
+      kejadian: allKejadianLayers || []
     });
     
     // Tunggu sebentar agar state ter-update
@@ -513,11 +691,12 @@ const updateMapBoundsDas = async (dasList: Array<any>) => {
       
       // Tunggu sebentar agar state ter-update, lalu reload layers
       setTimeout(async () => {
+        const dasNames = dasList.map(d => d.nama_das);
         for (const tableName of activeLayers) {
           // Check jika kejadian layer
           if (tableName.startsWith('kejadian_')) {
             const year = parseInt(tableName.replace('kejadian_', ''));
-            await loadKejadianLayer(tableName, year);
+            await loadKejadianLayer(tableName, year, dasNames);
           } else {
             await loadLayerInBounds(tableName);
           }
@@ -579,12 +758,21 @@ const handleRemoveArea = async (index: number) => {
     // Clear selected DAS juga
     setSelectedDas([]);
     
+    const kejadianResponse = await fetch(`${API_URL}/api/kejadian/years`);
+    const kejadianData = await kejadianResponse.json();
+      
+    const allKejadianLayers = kejadianData.years.map((year: number) => ({
+      id: `kejadian_${year}`,
+      name: `kejadian_${year}`,
+      year: year
+    }));
+
     // Reset availableLayers ke semua layer termasuk semua tahun kejadian
     setAvailableLayers({ 
       kerawanan: layerData.kerawanan || [], 
       mitigasiAdaptasi: layerData.mitigasiAdaptasi || [], 
       lainnya: layerData.lainnya || [],
-      kejadian: layerData.kejadian || []
+      kejadian: allKejadianLayers || []
     });
     
     // Tunggu sebentar agar state ter-update
@@ -754,6 +942,17 @@ const checkLayerAvailability = async (bounds: [[number, number], [number, number
       delete layerGroupsRef.current[tableName];
       console.log('Layer removed from map');
       
+      if (tableName === 'tutupan_lahan') {
+        setTutupanLahanData([]);
+      }
+
+      if (tableName.startsWith('kejadian_')) {
+        // Tunggu state update, lalu fetch photos lagi
+        setTimeout(async () => {
+          await fetchKejadianPhotos();
+        }, 100);
+      }
+
       // Update state
       setActiveLayers(prev => {
         const newSet = new Set(prev);
@@ -847,11 +1046,19 @@ const fetchLayers = async () => {
 
 
   const handleAddClick = (section: 'kerawanan' | 'mitigasiAdaptasi' | 'lainnya') => {
-    setCurrentSection(section);
-    setNewLayerName('');
-    setUploadedFiles([]);
-    setShowAddModal(true);
-  };
+  // Check authentication
+  if (!isAuthenticated) {
+    if (window.confirm('Anda harus login sebagai admin untuk menambah data. Pergi ke halaman login?')) {
+      navigate('/administrator-sign-in');
+    }
+    return;
+  }
+  
+  setCurrentSection(section);
+  setNewLayerName('');
+  setUploadedFiles([]);
+  setShowAddModal(true);
+};
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -982,9 +1189,17 @@ const fetchLayers = async () => {
   };
 
   const handleDeleteClick = (section: 'kerawanan' | 'mitigasiAdaptasi' | 'lainnya', id: string, name: string) => {
-    setLayerToDelete({section, id, name});
-    setShowDeleteModal(true);
-  };
+  // Check authentication
+  if (!isAuthenticated) {
+    if (window.confirm('Anda harus login sebagai admin untuk menghapus data. Pergi ke halaman login?')) {
+      navigate('/administrator-sign-in');
+    }
+    return;
+  }
+  
+  setLayerToDelete({section, id, name});
+  setShowDeleteModal(true);
+};
 
   const confirmDelete = async () => {
     if (!layerToDelete) return;
@@ -1064,6 +1279,13 @@ const fetchLayers = async () => {
       // Ambil snapshot activeLayers saat ini
       const currentActiveLayers = Array.from(activeLayers);
       
+      if (currentActiveLayers.length === 0) {
+        console.log('No active layers to reload');
+        return;
+      }
+      
+      console.log('Reloading active layers:', currentActiveLayers);
+      
       // Reload semua active layers dengan zoom level baru
       currentActiveLayers.forEach(async (tableName) => {
         if (tableName.startsWith('kejadian_')) {
@@ -1084,7 +1306,7 @@ const fetchLayers = async () => {
     }
     clearTimeout(zoomTimeout);
   };
-}, [mapReady]);
+}, [mapReady, activeLayers]);
 
 //   useEffect(() => {
 //   if (!mapReady || activeLayers.size === 0) return;
@@ -1154,6 +1376,18 @@ const fetchLayers = async () => {
       }
     };
   }, []);
+
+  useEffect(() => {
+  // Auto-fetch photos ketika ada perubahan pada activeLayers kejadian
+  const hasActiveKejadian = Array.from(activeLayers).some(layer => layer.startsWith('kejadian_'));
+  if (hasActiveKejadian) {
+    console.log('Active kejadian layers detected, fetching photos...');
+    fetchKejadianPhotos();
+  } else {
+    console.log('No active kejadian layers, clearing photos');
+    setKejadianPhotos([]);
+  }
+}, [activeLayers, currentBounds, selectedDas]);
 
   const [activeTab, setActiveTab] = useState('administrasi');
   const [activeBottomTab, setActiveBottomTab] = useState('curahHujan');
@@ -1410,6 +1644,13 @@ const fetchLayers = async () => {
     return <canvas ref={chartRef} />;
   };
 
+  useEffect(() => {
+  // Refresh data tutupan lahan jika layer aktif dan bounds berubah
+  if (activeLayers.has('tutupan_lahan')) {
+    fetchTutupanLahanData();
+  }
+}, [currentBounds, selectedDas]);
+
   const DataTable = ({ columns, data }) => (
     <div className="overflow-x-auto">
       <table className="min-w-full bg-white border border-gray-200">
@@ -1437,131 +1678,257 @@ const fetchLayers = async () => {
     </div>
   );
 
-  const bottomTabs = [
-    { id: 'curahHujan', label: 'Curah Hujan 30 Hari', icon: '🌧️' },
-    { id: 'kemiringan', label: 'Kemiringan Lereng', icon: '⛰️' },
-    { id: 'topografi', label: 'Topografi', icon: '🗺️' },
-    { id: 'geologi', label: 'Geologi', icon: '🪨' },
-    { id: 'jenisTanah', label: 'Jenis Tanah', icon: '🌱' },
-    { id: 'patahan', label: 'Patahan', icon: '⚡' },
-    { id: 'tutupanLahan', label: 'Tutupan Lahan', icon: '🌳' },
-    { id: 'infrastruktur', label: 'Infrastruktur', icon: '🏗️' },
-    { id: 'kepadatan', label: 'Kepadatan Pemukiman', icon: '🏘️' },
-  ];
+  // const bottomTabs = [
+  //   { id: 'curahHujan', label: 'Curah Hujan 30 Hari', icon: '🌧️' },
+  //   { id: 'kemiringan', label: 'Kemiringan Lereng', icon: '⛰️' },
+  //   { id: 'topografi', label: 'Topografi', icon: '🗺️' },
+  //   { id: 'geologi', label: 'Geologi', icon: '🪨' },
+  //   { id: 'jenisTanah', label: 'Jenis Tanah', icon: '🌱' },
+  //   { id: 'patahan', label: 'Patahan', icon: '⚡' },
+  //   { id: 'tutupanLahan', label: 'Tutupan Lahan', icon: '🌳' },
+  //   { id: 'infrastruktur', label: 'Infrastruktur', icon: '🏗️' },
+  //   { id: 'kepadatan', label: 'Kepadatan Pemukiman', icon: '🏘️' },
+  // ];
+
+  const bottomTabs = React.useMemo(() => {
+  const tabs: Array<{id: string, label: string, icon: string}> = [];
+  
+    // Hanya tambahkan tab untuk layer-layer yang punya data bottom tabs
+    if (activeLayers.has('tutupan_lahan')) {
+      tabs.push({ id: 'tutupanLahan', label: 'Tutupan Lahan', icon: '🌳' });
+    }
+    
+    if (activeLayers.has('jenis_tanah')) {
+      tabs.push({ id: 'jenisTanah', label: 'Jenis Tanah', icon: '🌱' });
+    }
+    
+    if (activeLayers.has('geologi')) {
+      tabs.push({ id: 'geologi', label: 'Geologi', icon: '🪨' });
+    }
+    
+    return tabs;
+  }, [activeLayers]);
+
+  // const renderBottomContent = () => {
+  //   switch(activeBottomTab) {
+  //     case 'curahHujan':
+  //       return (
+  //         <div style={{ height: '180px' }} className="p-3">
+  //           <CurahHujanChart />
+  //         </div>
+  //       );
+  //     case 'kemiringan':
+  //       return (
+  //         <div className="p-3">
+  //           <DataTable 
+  //             columns={['No', 'Kelas Lereng', 'Luas (Ha)', 'Persentase (%)', 'Tingkat Bahaya']}
+  //             data={[
+  //               ['1', '0-8%', '1,250', '25%', 'Rendah'],
+  //               ['2', '8-15%', '1,500', '30%', 'Sedang'],
+  //               ['3', '15-25%', '1,000', '20%', 'Tinggi'],
+  //               ['4', '25-40%', '750', '15%', 'Sangat Tinggi'],
+  //               ['5', '>40%', '500', '10%', 'Ekstrim'],
+  //             ]}
+  //           />
+  //         </div>
+  //       );
+  //     case 'topografi':
+  //       return (
+  //         <div className="p-3">
+  //           <DataTable 
+  //             columns={['No', 'Kelas Elevasi', 'Luas (Ha)', 'Persentase (%)', 'Kategori']}
+  //             data={[
+  //               ['1', '0-100 mdpl', '2,000', '40%', 'Dataran Rendah'],
+  //               ['2', '100-500 mdpl', '1,500', '30%', 'Dataran Tinggi'],
+  //               ['3', '500-1000 mdpl', '1,000', '20%', 'Perbukitan'],
+  //               ['4', '1000-2000 mdpl', '400', '8%', 'Pegunungan'],
+  //               ['5', '>2000 mdpl', '100', '2%', 'Pegunungan Tinggi'],
+  //             ]}
+  //           />
+  //         </div>
+  //       );
+  //     case 'geologi':
+  //       return (
+  //         <div className="p-3">
+  //           <DataTable 
+  //             columns={['No', 'Formasi Batuan', 'Luas (Ha)', 'Persentase (%)']}
+  //             data={[
+  //               ['1', 'Aluvium', '1,800', '36%'],
+  //               ['2', 'Batuan Vulkanik', '1,500', '30%'],
+  //               ['3', 'Batuan Sedimen', '1,200', '24%'],
+  //               ['4', 'Batuan Metamorf', '500', '10%'],
+  //             ]}
+  //           />
+  //         </div>
+  //       );
+  //     case 'jenisTanah':
+  //       return (
+  //         <div style={{ height: '180px' }} className="p-3">
+  //           <JenisTanahChart />
+  //         </div>
+  //       );
+  //     case 'patahan':
+  //       return (
+  //         <div className="p-3">
+  //           <DataTable 
+  //             columns={['No', 'Nama Patahan', 'Panjang (km)', 'Status', 'Tingkat Bahaya']}
+  //             data={[
+  //               ['1', 'Patahan Sumatra', '120', 'Aktif', 'Tinggi'],
+  //               ['2', 'Patahan Lembang', '45', 'Aktif', 'Sedang'],
+  //               ['3', 'Patahan Cimandiri', '80', 'Semi-Aktif', 'Sedang'],
+  //               ['4', 'Patahan Palu-Koro', '200', 'Aktif', 'Sangat Tinggi'],
+  //               ['5', 'Patahan Sorong', '150', 'Aktif', 'Tinggi'],
+  //             ]}
+  //           />
+  //         </div>
+  //       );
+  //     case 'tutupanLahan':
+  //       if (activeLayers.has('tutupan_lahan') && tutupanLahanData.length > 0) {
+  //         return (
+  //           <div className="p-3">
+  //             <DataTable 
+  //               columns={['No', 'Kode Domain', 'Deskripsi Tutupan Lahan', 'Jumlah']}
+  //               data={tutupanLahanData.map((item, idx) => [
+  //                 (idx + 1).toString(),
+  //                 item.pl2024_id?.toString() || '-',
+  //                 item.deskripsi_domain || '-',
+  //                 item.count?.toString() || '0'
+  //               ])}
+  //             />
+  //           </div>
+  //         );
+  //       } else if (activeLayers.has('tutupan_lahan')) {
+  //         return (
+  //           <div className="p-3 flex items-center justify-center h-full">
+  //             <div className="text-center text-gray-500">
+  //               <p className="text-sm">Tidak ada data tutupan lahan di area yang dipilih</p>
+  //             </div>
+  //           </div>
+  //         );
+  //       } else {
+  //         return (
+  //           <div className="p-3 flex items-center justify-center h-full">
+  //             <div className="text-center text-gray-500">
+  //               <p className="text-sm">Aktifkan layer Tutupan Lahan untuk melihat data</p>
+  //             </div>
+  //           </div>
+  //         );
+  //       }
+  //     case 'infrastruktur':
+  //       return (
+  //         <div className="p-3">
+  //           <DataTable 
+  //             columns={['No', 'Jenis Infrastruktur', 'Jumlah', 'Kondisi', 'Tahun Pembangunan']}
+  //             data={[
+  //               ['1', 'Jalan Aspal', '150 km', 'Baik', '2020'],
+  //               ['2', 'Jembatan', '25 unit', 'Baik', '2019'],
+  //               ['3', 'Bendungan', '3 unit', 'Sangat Baik', '2021'],
+  //               ['4', 'Irigasi', '80 km', 'Sedang', '2018'],
+  //               ['5', 'Drainase', '120 km', 'Baik', '2020'],
+  //             ]}
+  //           />
+  //         </div>
+  //       );
+  //     case 'kepadatan':
+  //       return (
+  //         <div className="p-3">
+  //           <DataTable 
+  //             columns={['No', 'Kecamatan', 'Jumlah Penduduk', 'Luas (km²)', 'Kepadatan (jiwa/km²)']}
+  //             data={[
+  //               ['1', 'Kecamatan A', '50,000', '25', '2,000'],
+  //               ['2', 'Kecamatan B', '35,000', '30', '1,167'],
+  //               ['3', 'Kecamatan C', '60,000', '20', '3,000'],
+  //               ['4', 'Kecamatan D', '25,000', '40', '625'],
+  //               ['5', 'Kecamatan E', '45,000', '35', '1,286'],
+  //             ]}
+  //           />
+  //         </div>
+  //       );
+  //     default:
+  //       return null;
+  //   }
+  // };
 
   const renderBottomContent = () => {
-    switch(activeBottomTab) {
-      case 'curahHujan':
-        return (
-          <div style={{ height: '180px' }} className="p-3">
-            <CurahHujanChart />
-          </div>
-        );
-      case 'kemiringan':
-        return (
-          <div className="p-3">
-            <DataTable 
-              columns={['No', 'Kelas Lereng', 'Luas (Ha)', 'Persentase (%)', 'Tingkat Bahaya']}
-              data={[
-                ['1', '0-8%', '1,250', '25%', 'Rendah'],
-                ['2', '8-15%', '1,500', '30%', 'Sedang'],
-                ['3', '15-25%', '1,000', '20%', 'Tinggi'],
-                ['4', '25-40%', '750', '15%', 'Sangat Tinggi'],
-                ['5', '>40%', '500', '10%', 'Ekstrim'],
-              ]}
-            />
-          </div>
-        );
-      case 'topografi':
-        return (
-          <div className="p-3">
-            <DataTable 
-              columns={['No', 'Kelas Elevasi', 'Luas (Ha)', 'Persentase (%)', 'Kategori']}
-              data={[
-                ['1', '0-100 mdpl', '2,000', '40%', 'Dataran Rendah'],
-                ['2', '100-500 mdpl', '1,500', '30%', 'Dataran Tinggi'],
-                ['3', '500-1000 mdpl', '1,000', '20%', 'Perbukitan'],
-                ['4', '1000-2000 mdpl', '400', '8%', 'Pegunungan'],
-                ['5', '>2000 mdpl', '100', '2%', 'Pegunungan Tinggi'],
-              ]}
-            />
-          </div>
-        );
-      case 'geologi':
-        return (
-          <div className="p-3">
-            <DataTable 
-              columns={['No', 'Formasi Batuan', 'Luas (Ha)', 'Persentase (%)']}
-              data={[
-                ['1', 'Aluvium', '1,800', '36%'],
-                ['2', 'Batuan Vulkanik', '1,500', '30%'],
-                ['3', 'Batuan Sedimen', '1,200', '24%'],
-                ['4', 'Batuan Metamorf', '500', '10%'],
-              ]}
-            />
-          </div>
-        );
-      case 'jenisTanah':
+  // Jika tidak ada layer yang aktif atau tidak ada tab
+  if (bottomTabs.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center text-gray-400">
+          <p className="text-sm">Tidak ada data untuk ditampilkan</p>
+          <p className="text-xs mt-1">Aktifkan layer untuk melihat data</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Render konten berdasarkan tab yang aktif
+  switch (activeBottomTab) {
+    case 'tutupanLahan':
+      if (activeLayers.has('tutupan_lahan') && tutupanLahanData.length > 0) {
+          return (
+            <div className="p-3">
+              <DataTable 
+                columns={['No', 'Kode Domain', 'Deskripsi Tutupan Lahan', 'Jumlah']}
+                data={tutupanLahanData.map((item, idx) => [
+                  (idx + 1).toString(),
+                  item.pl2024_id?.toString() || '-',
+                  item.deskripsi_domain || '-',
+                  item.count?.toString() || '0'
+                ])}
+              />
+            </div>
+          );
+        } else if (activeLayers.has('tutupan_lahan')) {
+          return (
+            <div className="p-3 flex items-center justify-center h-full">
+              <div className="text-center text-gray-500">
+                <p className="text-sm">Tidak ada data tutupan lahan di area yang dipilih</p>
+              </div>
+            </div>
+          );
+        }
+      break;
+
+    case 'jenisTanah':
+      if (activeLayers.has('jenis_tanah')) {
         return (
           <div style={{ height: '180px' }} className="p-3">
             <JenisTanahChart />
           </div>
         );
-      case 'patahan':
+      }
+      break;
+
+    case 'geologi':
+      if (activeLayers.has('geologi')) {
         return (
           <div className="p-3">
             <DataTable 
-              columns={['No', 'Nama Patahan', 'Panjang (km)', 'Status', 'Tingkat Bahaya']}
+              columns={['No', 'Jenis Batuan', 'Formasi', 'Umur']}
               data={[
-                ['1', 'Patahan Sumatra', '120', 'Aktif', 'Tinggi'],
-                ['2', 'Patahan Lembang', '45', 'Aktif', 'Sedang'],
-                ['3', 'Patahan Cimandiri', '80', 'Semi-Aktif', 'Sedang'],
-                ['4', 'Patahan Palu-Koro', '200', 'Aktif', 'Sangat Tinggi'],
-                ['5', 'Patahan Sorong', '150', 'Aktif', 'Tinggi'],
+                ['1', 'Andesit', 'Formasi Jampang', 'Miosen'],
+                ['2', 'Batupasir', 'Formasi Rajamandala', 'Miosen'],
+                ['3', 'Granit', 'Intrusi', 'Paleozoikum'],
+                ['4', 'Tufa', 'Formasi Tuff', 'Pliosen'],
+                ['5', 'Aluvium', 'Endapan Aluvial', 'Holosen'],
               ]}
             />
           </div>
         );
-      case 'tutupanLahan':
-        return (
-          <div style={{ height: '180px' }} className="p-3">
-            <TutupanLahanChart />
+      }
+      break;
+
+    default:
+      return (
+        <div className="flex items-center justify-center h-full">
+          <div className="text-center text-gray-400">
+            <p className="text-sm">Pilih tab untuk melihat data</p>
           </div>
-        );
-      case 'infrastruktur':
-        return (
-          <div className="p-3">
-            <DataTable 
-              columns={['No', 'Jenis Infrastruktur', 'Jumlah', 'Kondisi', 'Tahun Pembangunan']}
-              data={[
-                ['1', 'Jalan Aspal', '150 km', 'Baik', '2020'],
-                ['2', 'Jembatan', '25 unit', 'Baik', '2019'],
-                ['3', 'Bendungan', '3 unit', 'Sangat Baik', '2021'],
-                ['4', 'Irigasi', '80 km', 'Sedang', '2018'],
-                ['5', 'Drainase', '120 km', 'Baik', '2020'],
-              ]}
-            />
-          </div>
-        );
-      case 'kepadatan':
-        return (
-          <div className="p-3">
-            <DataTable 
-              columns={['No', 'Kecamatan', 'Jumlah Penduduk', 'Luas (km²)', 'Kepadatan (jiwa/km²)']}
-              data={[
-                ['1', 'Kecamatan A', '50,000', '25', '2,000'],
-                ['2', 'Kecamatan B', '35,000', '30', '1,167'],
-                ['3', 'Kecamatan C', '60,000', '20', '3,000'],
-                ['4', 'Kecamatan D', '25,000', '40', '625'],
-                ['5', 'Kecamatan E', '45,000', '35', '1,286'],
-              ]}
-            />
-          </div>
-        );
-      default:
-        return null;
-    }
-  };
+        </div>
+      );
+  }
+};
 
   return (
     
@@ -1595,9 +1962,30 @@ const fetchLayers = async () => {
         }
       `}
     </style>
-      
+
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col">
+         {isAuthenticated && (
+        <div className="bg-green-50 border-b border-green-200 px-6 py-3">
+          <div className="max-w-full flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
+              <span className="text-green-800 text-sm font-medium">
+                Logged in as Admin
+              </span>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="px-4 py-1.5 bg-red-500 text-white text-sm rounded hover:bg-red-600 transition"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+      )}
         {/* Top Section: Map with Layer Panel - 65% height */}
         <div className="relative flex" style={{ height: '65vh' }}>
           {/* Map Container */}
@@ -1904,23 +2292,27 @@ const fetchLayers = async () => {
         >
           {layer.name}
         </span>
-        <button
-          onClick={() => handleDeleteClick('kerawanan', layer.id, layer.name)}
-          className="text-red-500 hover:text-red-700 font-bold text-base flex-shrink-0"
-        >
+        {isAuthenticated && (
+          <button
+            onClick={() => handleDeleteClick('kerawanan', layer.id, layer.name)}
+            className="text-red-500 hover:text-red-700 font-bold text-base flex-shrink-0"
+          >
           ×
         </button>
+        )}
       </div>
     ))}
     
     {/* Tambah Data Button */}
-    <button
-      onClick={() => handleAddClick('kerawanan')}
-      className="flex items-center gap-1 px-2 py-1 border-2 border-dashed border-blue-400 text-blue-500 rounded hover:bg-blue-50 transition-colors justify-center"
-    >
+    {isAuthenticated && (
+      <button
+        onClick={() => handleAddClick('kerawanan')}
+        className="flex items-center gap-1 px-2 py-1 border-2 border-dashed border-blue-400 text-blue-500 rounded hover:bg-blue-50 transition-colors justify-center"
+      >
       <span className="text-base font-bold">+</span>
       <span className="text-xs">Tambah Data</span>
     </button>
+    )}
   </div>
 </div>
 
@@ -1944,23 +2336,27 @@ const fetchLayers = async () => {
         >
           {layer.name}
         </span>
-        <button
-          onClick={() => handleDeleteClick('mitigasiAdaptasi', layer.id, layer.name)}
-          className="text-red-500 hover:text-red-700 font-bold text-base flex-shrink-0"
-        >
+        {isAuthenticated && (
+          <button
+            onClick={() => handleDeleteClick('kerawanan', layer.id, layer.name)}
+            className="text-red-500 hover:text-red-700 font-bold text-base flex-shrink-0"
+          >
           ×
         </button>
+        )}
       </div>
     ))}
     
     {/* Tambah Data Button */}
-    <button
-      onClick={() => handleAddClick('mitigasiAdaptasi')}
-      className="flex items-center gap-1 px-2 py-1 border-2 border-dashed border-blue-400 text-blue-500 rounded hover:bg-blue-50 transition-colors justify-center"
-    >
+    {isAuthenticated && (
+      <button
+        onClick={() => handleAddClick('kerawanan')}
+        className="flex items-center gap-1 px-2 py-1 border-2 border-dashed border-blue-400 text-blue-500 rounded hover:bg-blue-50 transition-colors justify-center"
+      >
       <span className="text-base font-bold">+</span>
       <span className="text-xs">Tambah Data</span>
     </button>
+    )}
   </div>
 </div>
 
@@ -1984,23 +2380,27 @@ const fetchLayers = async () => {
         >
           {layer.name}
         </span>
-        <button
-          onClick={() => handleDeleteClick('lainnya', layer.id, layer.name)}
-          className="text-red-500 hover:text-red-700 font-bold text-base flex-shrink-0"
-        >
+        {isAuthenticated && (
+          <button
+            onClick={() => handleDeleteClick('kerawanan', layer.id, layer.name)}
+            className="text-red-500 hover:text-red-700 font-bold text-base flex-shrink-0"
+          >
           ×
         </button>
+        )}
       </div>
     ))}
     
     {/* Tambah Data Button */}
-    <button
-      onClick={() => handleAddClick('lainnya')}
-      className="flex items-center gap-1 px-2 py-1 border-2 border-dashed border-blue-400 text-blue-500 rounded hover:bg-blue-50 transition-colors justify-center"
-    >
+    {isAuthenticated && (
+      <button
+        onClick={() => handleAddClick('kerawanan')}
+        className="flex items-center gap-1 px-2 py-1 border-2 border-dashed border-blue-400 text-blue-500 rounded hover:bg-blue-50 transition-colors justify-center"
+      >
       <span className="text-base font-bold">+</span>
       <span className="text-xs">Tambah Data</span>
     </button>
+    )}
   </div>
 </div>
 
@@ -2079,27 +2479,64 @@ const fetchLayers = async () => {
           {/* Photo Gallery Sidebar */}
           <div className="w-80 bg-gray-50 border-l border-gray-300 flex flex-col" style={{ height: '35vh' }}>
             <div className="p-3 flex-shrink-0">
-              <h3 className="text-sm font-semibold text-gray-800">Dokumentasi Foto Bencana</h3>
+              <h3 className="text-sm font-semibold text-gray-800">Dokumentasi Foto Kejadian</h3>
+              {kejadianPhotos.length > 0 && (
+                <p className="text-xs text-gray-600 mt-1">
+                  {kejadianPhotos.length} foto dari kejadian yang ditampilkan
+                </p>
+              )}
             </div>
             <div className="flex-1 overflow-y-auto px-3 pb-3">
-              <div className="grid grid-cols-2 gap-2">
-                {dummyPhotos.slice(0, 4).map((photo, idx) => (
-                  <div key={idx} className="relative">
-                    <img
-                      src={photo}
-                      alt={`Photo ${idx + 1}`}
-                      className="w-full h-20 object-cover rounded cursor-pointer hover:opacity-80 transition"
-                      onClick={() => setSelectedPhotoIndex(idx)}
-                    />
-                    {idx === 3 && dummyPhotos.length > 4 && (
-                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded cursor-pointer hover:bg-black/40 transition"
-                        onClick={() => setSelectedPhotoIndex(idx)}>
-                        <span className="text-white text-xl font-bold">+{dummyPhotos.length - 4}</span>
-                      </div>
-                    )}
+              {kejadianPhotos.length > 0 ? (
+                <div className="grid grid-cols-2 gap-2">
+                  {kejadianPhotos.slice(0, 4).map((photo, idx) => (
+                    <div 
+                      key={idx} 
+                      className="relative w-full h-32 overflow-hidden rounded cursor-pointer shadow-sm"
+                      style={{ position: 'relative' }}
+                    >
+                      <img
+                        src={`${API_URL}${photo.path}`}
+                        alt={`${photo.incident_type} - ${new Date(photo.incident_date).toLocaleDateString()}`}
+                        className="w-full h-full object-cover transition-transform duration-200"
+                        onClick={() => setSelectedPhotoIndex(idx)}
+                        onError={(e) => {
+                          e.currentTarget.src = 'https://via.placeholder.com/150?text=No+Image';
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.transform = 'scale(1.1)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.transform = 'scale(1)';
+                        }}
+                      />
+                      {idx === 3 && kejadianPhotos.length > 4 && (
+                        <div
+                          className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center rounded cursor-pointer"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedPhotoIndex(idx);
+                          }}
+                          style={{
+                            zIndex: 10
+                          }}
+                        >
+                          <span className="text-white text-4xl font-bold">
+                            +{kejadianPhotos.length - 4}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center text-gray-400">
+                    <p className="text-sm">Tidak ada foto</p>
+                    <p className="text-xs mt-1">Aktifkan layer kejadian untuk melihat foto</p>
                   </div>
-                ))}
-              </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -2271,52 +2708,126 @@ const fetchLayers = async () => {
       )}
 
       {/* Photo Lightbox */}
-      {selectedPhotoIndex !== null && (
-        <div className="fixed inset-0 bg-black bg-opacity-90 z-[2000] flex items-center justify-center">
+      {selectedPhotoIndex !== null && kejadianPhotos.length > 0 && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-90 z-[2000] flex items-center justify-center"
+          onClick={() => setSelectedPhotoIndex(null)}
+          style={{ cursor: 'pointer' }}
+        >
+          {/* Close Button */}
           <button
             onClick={() => setSelectedPhotoIndex(null)}
-            className="absolute top-4 right-4 text-white text-4xl hover:text-gray-300"
+            className="absolute top-4 right-4 text-white text-4xl hover:text-gray-300 bg-transparent border-none cursor-pointer z-[2001]"
+            style={{ background: 'none', border: 'none' }}
           >
             ×
           </button>
           
-          <button
-            onClick={() => setSelectedPhotoIndex(prev => prev > 0 ? prev - 1 : dummyPhotos.length - 1)}
-            className="absolute left-4 text-white text-5xl hover:text-gray-300 bg-black bg-opacity-50 rounded-full w-12 h-12 flex items-center justify-center"
-          >
-            ‹
-          </button>
+          {/* Previous Button */}
+          {selectedPhotoIndex > 0 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedPhotoIndex(prev => prev > 0 ? prev - 1 : 0);
+              }}
+              className="absolute left-4 text-white text-5xl hover:text-gray-300 bg-black bg-opacity-50 rounded-full w-12 h-12 flex items-center justify-center"
+              style={{ top: '50%', transform: 'translateY(-50%)', zIndex: 2002 }}
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M15 18l-6-6 6-6"/>
+              </svg>
+            </button>
+          )}
           
-          <div className="max-w-4xl max-h-screen p-4">
+          {/* Main Content */}
+          <div 
+            className="relative max-w-4xl max-h-screen p-4"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: '#000',
+              borderRadius: '0.5rem',
+              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.5)',
+              overflow: 'hidden'
+            }}
+          >
+            {/* Main Image */}
             <img
-              src={dummyPhotos[selectedPhotoIndex]}
-              alt={`Photo ${selectedPhotoIndex + 1}`}
-              className="max-w-full max-h-full object-contain"
+              src={`${API_URL}${kejadianPhotos[selectedPhotoIndex].path}`}
+              alt={`${kejadianPhotos[selectedPhotoIndex].incident_type}`}
+              className="max-w-full max-h-full object-contain block"
+              style={{
+                maxWidth: '800px',
+                maxHeight: '500px',
+                width: '100%',
+                height: 'auto'
+              }}
+              onError={(e) => {
+                e.currentTarget.src = 'https://via.placeholder.com/800?text=Image+Not+Found';
+              }}
             />
-            <div className="text-white text-center mt-4">
-              <p className="text-lg">Foto {selectedPhotoIndex + 1} dari {dummyPhotos.length}</p>
+            
+            {/* Photo Info */}
+            <div className="text-white text-center mt-4 px-4">
+              <p className="text-lg font-semibold">
+                Foto {selectedPhotoIndex + 1} dari {kejadianPhotos.length}
+              </p>
+              <p className="text-sm mt-2">
+                {kejadianPhotos[selectedPhotoIndex].incident_type} - {' '}
+                {new Date(kejadianPhotos[selectedPhotoIndex].incident_date).toLocaleDateString('id-ID', {
+                  day: 'numeric',
+                  month: 'long',
+                  year: 'numeric'
+                })}
+              </p>
+              {kejadianPhotos[selectedPhotoIndex].title && (
+                <p className="text-xs text-gray-300 mt-1">
+                  {kejadianPhotos[selectedPhotoIndex].title}
+                </p>
+              )}
             </div>
-            <div className="flex justify-center gap-2 mt-4">
-              {dummyPhotos.map((photo, idx) => (
+            
+            {/* Thumbnails */}
+            <div 
+              className="flex gap-2 mt-4 px-4 pb-4 overflow-x-auto"
+              style={{
+                scrollbarWidth: 'thin',
+                scrollbarColor: '#ccc #000'
+              }}
+            >
+              {kejadianPhotos.map((photo, idx) => (
                 <img
                   key={idx}
-                  src={photo}
+                  src={`${API_URL}${photo.path}`}
                   alt={`Thumbnail ${idx + 1}`}
                   onClick={() => setSelectedPhotoIndex(idx)}
-                  className={`w-16 h-16 object-cover cursor-pointer rounded ${
-                    idx === selectedPhotoIndex ? 'border-4 border-orange-500' : 'border-2 border-gray-500'
-                  }`}
+                  className="flex-shrink-0 w-20 h-20 object-cover rounded cursor-pointer"
+                  style={{
+                    border: selectedPhotoIndex === idx ? '3px solid #f97316' : '2px solid transparent',
+                    opacity: selectedPhotoIndex === idx ? 1 : 0.6
+                  }}
+                  onError={(e) => {
+                    e.currentTarget.src = 'https://via.placeholder.com/80?text=No+Image';
+                  }}
                 />
               ))}
             </div>
           </div>
           
-          <button
-            onClick={() => setSelectedPhotoIndex(prev => prev < dummyPhotos.length - 1 ? prev + 1 : 0)}
-            className="absolute right-4 text-white text-5xl hover:text-gray-300 bg-black bg-opacity-50 rounded-full w-12 h-12 flex items-center justify-center"
-          >
-            ›
-          </button>
+          {/* Next Button */}
+          {selectedPhotoIndex < kejadianPhotos.length - 1 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedPhotoIndex(prev => prev < kejadianPhotos.length - 1 ? prev + 1 : prev);
+              }}
+              className="absolute right-4 text-white text-5xl hover:text-gray-300 bg-black bg-opacity-50 rounded-full w-12 h-12 flex items-center justify-center"
+              style={{ top: '50%', transform: 'translateY(-50%)', zIndex: 2002 }}
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M9 18l6-6-6-6"/>
+              </svg>
+            </button>
+          )}
         </div>
       )}
     </div>

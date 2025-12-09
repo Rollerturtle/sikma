@@ -5177,25 +5177,29 @@ const pool = new Pool(dbConfig);
 //   }
 // }, 10 * 60 * 1000); 
 
-// Error handler untuk kedua konfigurasi multer
+// // Error handler untuk kedua konfigurasi multer
 app.use((error, req, res, next) => {
   if (error instanceof multer.MulterError) {
+    console.error('Multer error:', error);
+    
     if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ error: 'File too large (max 10MB)' });
+      return res.status(400).json({ 
+        error: 'File terlalu besar. Maksimal ukuran file adalah 5GB',
+        code: 'FILE_TOO_LARGE'
+      });
     }
-    return res.status(400).json({ error: `Upload error: ${error.message}` });
-  }
-  
-  // Handle fileFilter errors dengan pesan yang lebih jelas
-  if (error.message && error.message.includes('Only image and Excel files are allowed')) {
+    
+    if (error.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({ 
+        error: 'Terlalu banyak file. Maksimal 20 file',
+        code: 'TOO_MANY_FILES'
+      });
+    }
+    
     return res.status(400).json({ 
-      error: 'File type not supported in kejadian form. Only images and Excel files are allowed.' 
+      error: error.message,
+      code: error.code
     });
-  }
-  
-  // General multer error
-  if (error.message) {
-    return res.status(400).json({ error: error.message });
   }
   
   next(error);
@@ -9081,54 +9085,315 @@ app.get('/api/kejadian/list', async (req, res) => {
   }
 });
 
-app.post('/api/kejadian/check-years-availability', async (req, res) => {
-  const client = await pool.connect();
+// app.post('/api/kejadian/check-years-availability', async (req, res) => {
+//   const client = await pool.connect();
   
+//   try {
+//     const { bounds, dasFilter } = req.body;
+    
+//     if (!bounds || bounds.length !== 2) {
+//       return res.status(400).json({ error: 'Invalid bounds format' });
+//     }
+    
+//     const [[minLat, minLng], [maxLat, maxLng]] = bounds;
+//     const boundsWKT = `POLYGON((${minLng} ${minLat}, ${maxLng} ${minLat}, ${maxLng} ${maxLat}, ${minLng} ${maxLat}, ${minLng} ${minLat}))`;
+    
+//     let yearsQuery;
+//     let queryParams;
+    
+//     if (dasFilter && dasFilter.length > 0) {
+//       const dasPlaceholders = dasFilter.map((_, idx) => `$${idx + 2}`).join(', ');
+//       yearsQuery = `
+//         SELECT DISTINCT EXTRACT(YEAR FROM date)::integer as year
+//         FROM kejadian
+//         WHERE geom IS NOT NULL
+//         AND ST_Intersects(geom, ST_GeomFromText($1, 4326))
+//         AND das IN (${dasPlaceholders})
+//         ORDER BY year DESC
+//       `;
+//       queryParams = [boundsWKT, ...dasFilter];
+//     } else {
+//       yearsQuery = `
+//         SELECT DISTINCT EXTRACT(YEAR FROM date)::integer as year
+//         FROM kejadian
+//         WHERE geom IS NOT NULL
+//         AND ST_Intersects(geom, ST_GeomFromText($1, 4326))
+//         ORDER BY year DESC
+//       `;
+//       queryParams = [boundsWKT];
+//     }
+    
+//     const result = await client.query(yearsQuery, queryParams);
+//     const availableYears = result.rows.map(row => row.year);
+    
+//     res.json({ availableYears });
+    
+//   } catch (error) {
+//     console.error('Error checking kejadian years availability:', error);
+//     res.status(500).json({ error: 'Failed to check kejadian years availability' });
+//   } finally {
+//     client.release();
+//   }
+// });
+
+app.post('/api/kejadian/check-years-availability', async (req, res) => {
   try {
     const { bounds, dasFilter } = req.body;
     
-    if (!bounds || bounds.length !== 2) {
-      return res.status(400).json({ error: 'Invalid bounds format' });
+    let query = `
+      SELECT DISTINCT EXTRACT(YEAR FROM date)::integer as year
+      FROM kejadian
+      WHERE 1=1
+    `;
+    
+    const params = [];
+    let paramIndex = 1;
+    
+    // Filter by bounds if provided
+    if (bounds && bounds.length === 2) {
+      const [[minLat, minLng], [maxLat, maxLng]] = bounds;
+      query += ` AND ST_Intersects(
+        ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
+        ST_MakeEnvelope($${paramIndex}, $${paramIndex+1}, $${paramIndex+2}, $${paramIndex+3}, 4326)
+      )`;
+      params.push(minLng, minLat, maxLng, maxLat);
+      paramIndex += 4;
     }
     
-    const [[minLat, minLng], [maxLat, maxLng]] = bounds;
-    const boundsWKT = `POLYGON((${minLng} ${minLat}, ${maxLng} ${minLat}, ${maxLng} ${maxLat}, ${minLng} ${maxLat}, ${minLng} ${minLat}))`;
-    
-    let yearsQuery;
-    let queryParams;
-    
+    // Filter by DAS if provided
     if (dasFilter && dasFilter.length > 0) {
-      const dasPlaceholders = dasFilter.map((_, idx) => `$${idx + 2}`).join(', ');
-      yearsQuery = `
-        SELECT DISTINCT EXTRACT(YEAR FROM incident_date)::integer as year
-        FROM kejadian
-        WHERE geom IS NOT NULL
-        AND ST_Intersects(geom, ST_GeomFromText($1, 4326))
-        AND das IN (${dasPlaceholders})
-        ORDER BY year DESC
-      `;
-      queryParams = [boundsWKT, ...dasFilter];
-    } else {
-      yearsQuery = `
-        SELECT DISTINCT EXTRACT(YEAR FROM incident_date)::integer as year
-        FROM kejadian
-        WHERE geom IS NOT NULL
-        AND ST_Intersects(geom, ST_GeomFromText($1, 4326))
-        ORDER BY year DESC
-      `;
-      queryParams = [boundsWKT];
+      const dasPlaceholders = dasFilter.map((_, i) => `$${paramIndex + i}`).join(',');
+      // Gunakan INITCAP() untuk Title Case comparison
+      query += ` AND INITCAP(das) IN (${dasPlaceholders})`;
+      // Normalisasi ke Title Case
+      params.push(...dasFilter.map(d => d.charAt(0).toUpperCase() + d.slice(1).toLowerCase()));
+      paramIndex += dasFilter.length;
     }
     
-    const result = await client.query(yearsQuery, queryParams);
+    query += ' ORDER BY year DESC';
+    
+    console.log('Check kejadian years availability query:', query);
+    console.log('With params:', params);
+    
+    const result = await pool.query(query, params);
     const availableYears = result.rows.map(row => row.year);
     
-    res.json({ availableYears });
+    console.log('Available kejadian years in bounds:', availableYears);
     
+    res.json({ 
+      availableYears: availableYears
+    });
   } catch (error) {
     console.error('Error checking kejadian years availability:', error);
-    res.status(500).json({ error: 'Failed to check kejadian years availability' });
-  } finally {
-    client.release();
+    res.status(500).json({ 
+      error: error.message,
+      availableYears: []
+    });
+  }
+});
+
+app.get('/api/kejadian/photos', async (req, res) => {
+  try {
+    const { bounds, year, dasFilter } = req.query;
+    
+    console.log('Fetching photos - year:', year, 'bounds:', bounds, 'dasFilter:', dasFilter);
+    
+    if (!year) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Year parameter is required' 
+      });
+    }
+    
+    // Query yang lebih aman - cek array length > 0
+    let query = `
+      SELECT 
+        id,
+        images_paths,
+        latitude,
+        longitude,
+        category,
+        date,
+        title
+      FROM kejadian
+      WHERE EXTRACT(YEAR FROM date) = $1
+        AND images_paths IS NOT NULL
+        AND CASE 
+          WHEN images_paths::text = '' THEN FALSE
+          WHEN images_paths::text = '{}' THEN FALSE
+          WHEN images_paths::text = '""' THEN FALSE
+          WHEN images_paths::text = 'null' THEN FALSE
+          ELSE array_length(images_paths, 1) > 0
+        END
+    `;
+    
+    const params = [parseInt(year)];
+    let paramIndex = 2;
+    
+    // Filter by bounds if provided
+    if (bounds) {
+      const [minLat, minLng, maxLat, maxLng] = bounds.split(',').map(Number);
+      query += ` AND ST_Intersects(
+        ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
+        ST_MakeEnvelope($${paramIndex}, $${paramIndex+1}, $${paramIndex+2}, $${paramIndex+3}, 4326)
+      )`;
+      params.push(minLng, minLat, maxLng, maxLat);
+      paramIndex += 4;
+    }
+    
+    // Filter by DAS if provided
+    if (dasFilter) {
+      try {
+        const dasArray = JSON.parse(dasFilter);
+        if (dasArray && dasArray.length > 0) {
+          const dasPlaceholders = dasArray.map((_, i) => `$${paramIndex + i}`).join(',');
+          query += ` AND INITCAP(das) IN (${dasPlaceholders})`;
+          params.push(...dasArray.map(d => d.charAt(0).toUpperCase() + d.slice(1).toLowerCase()));
+          paramIndex += dasArray.length;
+        }
+      } catch (e) {
+        console.error('Error parsing dasFilter:', e);
+      }
+    }
+    
+    query += ' ORDER BY date DESC';
+    
+    console.log('Executing kejadian photos query:', query);
+    console.log('With params:', params);
+    
+    let result;
+    try {
+      result = await pool.query(query, params);
+    } catch (queryError) {
+      console.error('Query execution error:', queryError);
+      // Jika masih error, coba query alternatif tanpa array_length check
+      console.log('Trying alternative query without array_length...');
+      
+      query = `
+        SELECT 
+          id,
+          images_paths,
+          latitude,
+          longitude,
+          category,
+          date,
+          title
+        FROM kejadian
+        WHERE EXTRACT(YEAR FROM date) = $1
+          AND images_paths IS NOT NULL
+      `;
+      
+      const altParams = [parseInt(year)];
+      let altParamIndex = 2;
+      
+      if (bounds) {
+        const [minLat, minLng, maxLat, maxLng] = bounds.split(',').map(Number);
+        query += ` AND ST_Intersects(
+          ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
+          ST_MakeEnvelope($${altParamIndex}, $${altParamIndex+1}, $${altParamIndex+2}, $${altParamIndex+3}, 4326)
+        )`;
+        altParams.push(minLng, minLat, maxLng, maxLat);
+        altParamIndex += 4;
+      }
+      
+      if (dasFilter) {
+        try {
+          const dasArray = JSON.parse(dasFilter);
+          if (dasArray && dasArray.length > 0) {
+            const dasPlaceholders = dasArray.map((_, i) => `$${altParamIndex + i}`).join(',');
+            query += ` AND INITCAP(das) IN (${dasPlaceholders})`;
+            altParams.push(...dasArray.map(d => d.charAt(0).toUpperCase() + d.slice(1).toLowerCase()));
+            altParamIndex += dasArray.length;
+          }
+        } catch (e) {
+          console.error('Error parsing dasFilter:', e);
+        }
+      }
+      
+      query += ' ORDER BY date DESC';
+      result = await pool.query(query, altParams);
+    }
+    
+    console.log('Raw query result rows:', result.rows.length);
+    
+    // Parse images_paths dan flatten menjadi array foto
+    const photos = [];
+    result.rows.forEach((row, idx) => {
+      console.log(`Processing row ${idx}:`, { 
+        id: row.id, 
+        images_paths: row.images_paths, 
+        type: typeof row.images_paths,
+        isArray: Array.isArray(row.images_paths)
+      });
+      
+      if (!row.images_paths) {
+        console.log(`Skipping null images_paths for row ${row.id}`);
+        return;
+      }
+      
+      let paths = [];
+      
+      try {
+        if (Array.isArray(row.images_paths)) {
+          // Sudah array dari PostgreSQL
+          paths = row.images_paths.filter(path => path && path.trim() !== '' && path.trim() !== '""');
+        } else if (typeof row.images_paths === 'string') {
+          const strValue = row.images_paths.trim();
+          
+          // Skip berbagai bentuk string kosong
+          if (strValue === '' || strValue === '{}' || strValue === '""' || strValue === 'null') {
+            console.log(`Skipping empty/invalid string for row ${row.id}: "${strValue}"`);
+            return;
+          }
+          
+          // Parse string array format: {path1,path2,path3}
+          if (strValue.startsWith('{') && strValue.endsWith('}')) {
+            paths = strValue
+              .slice(1, -1) // Remove { }
+              .split(',')
+              .map(p => p.trim())
+              .filter(p => p !== '' && p !== '""');
+          } else {
+            // Single path tanpa kurung kurawal
+            if (strValue !== '""') {
+              paths = [strValue];
+            }
+          }
+        }
+        
+        console.log(`Found ${paths.length} valid paths for row ${row.id}`);
+        
+        paths.forEach(path => {
+          if (path && path.trim()) {
+            photos.push({
+              id: row.id,
+              path: path.trim(),
+              incident_type: row.category,
+              incident_date: row.date,
+              title: row.title,
+              latitude: row.latitude,
+              longitude: row.longitude
+            });
+          }
+        });
+      } catch (parseError) {
+        console.error(`Error parsing images_paths for row ${row.id}:`, parseError);
+        console.error('Value was:', row.images_paths);
+      }
+    });
+    
+    console.log('Kejadian photos fetched:', photos.length, 'photos from', result.rows.length, 'incidents');
+    
+    res.json({
+      success: true,
+      photos: photos
+    });
+  } catch (error) {
+    console.error('Error fetching kejadian photos:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
   }
 });
 
@@ -9159,7 +9424,11 @@ app.get('/api/kejadian/by-year/:year', async (req, res) => {
   
   try {
     const { year } = req.params;
-    const { bounds, dasFilter } = req.query; // TAMBAH dasFilter
+    const { bounds, dasFilter } = req.query;
+    
+    console.log('Fetching kejadian for year:', year);
+    console.log('Bounds:', bounds);
+    console.log('dasFilter (raw):', dasFilter);
     
     // Build WHERE clause
     let whereClause = `WHERE EXTRACT(YEAR FROM date) = $1`;
@@ -9174,16 +9443,23 @@ app.get('/api/kejadian/by-year/:year', async (req, res) => {
         ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
         ST_GeomFromText('${boundsWKT}', 4326)
       )`;
+      console.log('Applied bounds filter');
     }
     
-    // TAMBAH: Add DAS filter if provided
+    // Add DAS filter if provided
     if (dasFilter) {
       try {
         const dasArray = JSON.parse(dasFilter);
+        console.log('Parsed dasFilter:', dasArray);
+        
         if (Array.isArray(dasArray) && dasArray.length > 0) {
-          const dasPlaceholders = dasArray.map(() => `$${paramIndex++}`).join(', ');
-          whereClause += ` AND das IN (${dasPlaceholders})`;
-          params.push(...dasArray);
+          const dasPlaceholders = dasArray.map((_, idx) => `$${paramIndex + idx}`).join(', ');
+          // Gunakan INITCAP() untuk Title Case comparison
+          whereClause += ` AND INITCAP(das) IN (${dasPlaceholders})`;
+          // Normalisasi ke Title Case
+          params.push(...dasArray.map(d => d.charAt(0).toUpperCase() + d.slice(1).toLowerCase()));
+          paramIndex += dasArray.length;
+          console.log('Applied DAS filter with Title Case values:', dasArray.map(d => d.charAt(0).toUpperCase() + d.slice(1).toLowerCase()));
         }
       } catch (e) {
         console.error('Error parsing dasFilter:', e);
@@ -9348,70 +9624,114 @@ app.delete('/api/kejadian/:id', verifyToken, async (req, res) => {
 
 // ================= Mulai perubahan/penambahan ================
 // Endpoint untuk mendapatkan DAS berdasarkan lokasi (kecamatan, kabupaten, provinsi)
-app.get('/api/das/by-location', async (req, res) => {
-  const client = await pool.connect();
+// app.get('/api/das/by-location', async (req, res) => {
+//   const client = await pool.connect();
   
+//   try {
+//     const { kecamatan, kabupaten, provinsi } = req.query;
+    
+//     if (!kecamatan && !kabupaten && !provinsi) {
+//       return res.status(400).json({ error: 'At least one location parameter required' });
+//     }
+    
+//     // Build WHERE clause dengan AND untuk semua kondisi
+//     const conditions = [];
+//     const params = [];
+//     let paramIndex = 1;
+    
+//     // Kecamatan - exact match
+//     if (kecamatan) {
+//       conditions.push(`LOWER(TRIM(wadmkc)) = LOWER(TRIM($${paramIndex}))`);
+//       params.push(kecamatan);
+//       paramIndex++;
+//     }
+    
+//     // Kabupaten - exact match
+//     if (kabupaten) {
+//       conditions.push(`LOWER(TRIM(wadmkk)) = LOWER(TRIM($${paramIndex}))`);
+//       params.push(kabupaten);
+//       paramIndex++;
+//     }
+    
+//     // Provinsi - exact match
+//     if (provinsi) {
+//       conditions.push(`LOWER(TRIM(wadmpr)) = LOWER(TRIM($${paramIndex}))`);
+//       params.push(provinsi);
+//       paramIndex++;
+//     }
+    
+//     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    
+//     const query = `
+//       SELECT DISTINCT wadmkd as das_name
+//       FROM das_adm
+//       ${whereClause}
+//       ORDER BY wadmkd
+//     `;
+    
+//     console.log('DAS by location Query:', query);
+//     console.log('Params:', params);
+    
+//     const result = await client.query(query, params);
+    
+//     const dasList = result.rows.map(row => row.das_name).filter(Boolean);
+    
+//     console.log('DAS by location results:', dasList.length, 'items found');
+//     if (dasList.length > 0) {
+//       console.log('DAS found:', dasList);
+//     }
+    
+//     res.json({ dasList });
+    
+//   } catch (error) {
+//     console.error('Error fetching DAS by location:', error);
+//     res.status(500).json({ error: 'Failed to fetch DAS: ' + error.message });
+//   } finally {
+//     client.release();
+//   }
+// });
+
+app.get('/api/das/by-location', async (req, res) => {
   try {
     const { kecamatan, kabupaten, provinsi } = req.query;
     
-    if (!kecamatan && !kabupaten && !provinsi) {
-      return res.status(400).json({ error: 'At least one location parameter required' });
-    }
+    let query = `
+      SELECT DISTINCT 
+        INITCAP(nama_das) as nama_das
+      FROM das_boundaries
+      WHERE 1=1
+    `;
     
-    // Build WHERE clause dengan AND untuk semua kondisi
-    const conditions = [];
     const params = [];
     let paramIndex = 1;
     
-    // Kecamatan - exact match
-    if (kecamatan) {
-      conditions.push(`LOWER(TRIM(wadmkc)) = LOWER(TRIM($${paramIndex}))`);
-      params.push(kecamatan);
-      paramIndex++;
-    }
-    
-    // Kabupaten - exact match
-    if (kabupaten) {
-      conditions.push(`LOWER(TRIM(wadmkk)) = LOWER(TRIM($${paramIndex}))`);
-      params.push(kabupaten);
-      paramIndex++;
-    }
-    
-    // Provinsi - exact match
     if (provinsi) {
-      conditions.push(`LOWER(TRIM(wadmpr)) = LOWER(TRIM($${paramIndex}))`);
+      query += ` AND LOWER(provinsi) = LOWER($${paramIndex})`;
       params.push(provinsi);
       paramIndex++;
     }
     
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    
-    const query = `
-      SELECT DISTINCT wadmkd as das_name
-      FROM das_adm
-      ${whereClause}
-      ORDER BY wadmkd
-    `;
-    
-    console.log('DAS by location Query:', query);
-    console.log('Params:', params);
-    
-    const result = await client.query(query, params);
-    
-    const dasList = result.rows.map(row => row.das_name).filter(Boolean);
-    
-    console.log('DAS by location results:', dasList.length, 'items found');
-    if (dasList.length > 0) {
-      console.log('DAS found:', dasList);
+    if (kabupaten) {
+      query += ` AND LOWER(kab_kota) = LOWER($${paramIndex})`;
+      params.push(kabupaten);
+      paramIndex++;
     }
     
-    res.json({ dasList });
+    if (kecamatan) {
+      query += ` AND LOWER(kecamatan) = LOWER($${paramIndex})`;
+      params.push(kecamatan);
+      paramIndex++;
+    }
     
+    query += ' ORDER BY nama_das';
+    
+    const result = await pool.query(query, params);
+    const dasList = result.rows.map(row => row.nama_das);
+    
+    res.json({ dasList });
   } catch (error) {
     console.error('Error fetching DAS by location:', error);
-    res.status(500).json({ error: 'Failed to fetch DAS: ' + error.message });
-  } finally {
-    client.release();
+    res.status(500).json({ error: error.message, dasList: [] });
   }
 });
 
@@ -10358,19 +10678,25 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
     let tolerance;
     
     if (zoomLevel <= 5) {
+      // Zoom sangat jauh - simplifikasi tinggi
       tolerance = 0.01;
+      console.log('Zoom level', zoomLevel, '- High simplification (tolerance:', tolerance, ')');
     } else if (zoomLevel <= 7) {
+      // Zoom jauh - simplifikasi sedang
       tolerance = 0.005;
+      console.log('Zoom level', zoomLevel, '- Medium simplification (tolerance:', tolerance, ')');
     } else if (zoomLevel <= 9) {
-      tolerance = 0.002;
-    } else if (zoomLevel <= 11) {
+      // Zoom sedang - simplifikasi rendah
       tolerance = 0.001;
-    } else if (zoomLevel <= 13) {
+      console.log('Zoom level', zoomLevel, '- Low simplification (tolerance:', tolerance, ')');
+    } else if (zoomLevel <= 11) {
+      // Zoom sedang-dekat - simplifikasi sangat rendah
       tolerance = 0.0005;
-    } else if (zoomLevel <= 15) {
-      tolerance = 0.0001;
+      console.log('Zoom level', zoomLevel, '- Very low simplification (tolerance:', tolerance, ')');
     } else {
+      // Zoom dekat (>= 12) - TIDAK ADA simplifikasi
       tolerance = 0;
+      console.log('Zoom level', zoomLevel, '- NO simplification (full detail)');
     }
     
     // Build WHERE clause dengan bounds jika ada
@@ -10434,6 +10760,98 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
   } catch (error) {
     console.error('Error fetching GeoJSON:', error);
     res.status(500).json({ error: 'Failed to fetch layer data: ' + error.message });
+  } finally {
+    client.release();
+  }
+});
+
+  app.get('/api/das/by-coordinates', async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    const { longitude, latitude } = req.query;
+    
+    if (!longitude || !latitude) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Longitude dan latitude diperlukan' 
+      });
+    }
+    
+    const lon = parseFloat(longitude);
+    const lat = parseFloat(latitude);
+    
+    // Validasi koordinat
+    if (isNaN(lon) || isNaN(lat)) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Koordinat tidak valid' 
+      });
+    }
+    
+    // Query spatial untuk mencari DAS yang mengandung titik koordinat
+    const query = `
+      SELECT 
+        nama_das,
+        ST_Distance(
+          geom::geography,
+          ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
+        ) as distance
+      FROM das_adm
+      WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326))
+      ORDER BY distance
+      LIMIT 1
+    `;
+    
+    console.log('Querying DAS for coordinates:', { longitude: lon, latitude: lat });
+    
+    const result = await client.query(query, [lon, lat]);
+    
+    if (result.rows.length > 0) {
+      console.log('Found DAS:', result.rows[0].nama_das);
+      res.json({
+        success: true,
+        das: result.rows[0].nama_das
+      });
+    } else {
+      // Jika tidak ada DAS yang mengandung titik (koordinat di luar semua DAS)
+      // Cari DAS terdekat
+      const nearestQuery = `
+        SELECT 
+          nama_das,
+          ST_Distance(
+            geom::geography,
+            ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
+          ) as distance
+        FROM das_adm
+        ORDER BY distance
+        LIMIT 1
+      `;
+      
+      const nearestResult = await client.query(nearestQuery, [lon, lat]);
+      
+      if (nearestResult.rows.length > 0) {
+        console.log('No DAS contains point, returning nearest:', nearestResult.rows[0].nama_das);
+        res.json({
+          success: true,
+          das: nearestResult.rows[0].nama_das,
+          isNearest: true,
+          distance: nearestResult.rows[0].distance
+        });
+      } else {
+        res.json({
+          success: false,
+          error: 'Tidak ada DAS ditemukan'
+        });
+      }
+    }
+    
+  } catch (error) {
+    console.error('Error getting DAS by coordinates:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
   } finally {
     client.release();
   }
@@ -10827,6 +11245,75 @@ app.post('/api/das/bounds', async (req, res) => {
     res.status(500).json({ error: 'Failed to get DAS bounds: ' + error.message });
   } finally {
     client.release();
+  }
+});
+
+app.get('/api/tutupan-lahan/data', async (req, res) => {
+  try {
+    const { bounds, dasFilter } = req.query;
+    
+    let query = `
+      SELECT DISTINCT 
+        tl.pl2024_id,
+        mpl.deskripsi_domain,
+        COUNT(*) as count
+      FROM tutupan_lahan tl
+      LEFT JOIN mapping_penutupan_lahan mpl ON tl.pl2024_id::text = mpl.kode_domain
+    `;
+    
+    const conditions = [];
+    const params = [];
+    let paramIndex = 1;
+    
+    // Filter by bounds if provided
+    if (bounds) {
+      const [minLat, minLng, maxLat, maxLng] = bounds.split(',').map(Number);
+      conditions.push(`ST_Intersects(
+        tl.geom,
+        ST_MakeEnvelope($${paramIndex}, $${paramIndex+1}, $${paramIndex+2}, $${paramIndex+3}, 4326)
+      )`);
+      params.push(minLng, minLat, maxLng, maxLat);
+      paramIndex += 4;
+    }
+    
+    // Filter by DAS if provided
+    if (dasFilter) {
+      try {
+        const dasArray = JSON.parse(dasFilter);
+        if (dasArray && dasArray.length > 0) {
+          const dasPlaceholders = dasArray.map((_, i) => `$${paramIndex + i}`).join(',');
+          conditions.push(`tl.nama_das IN (${dasPlaceholders})`);
+          params.push(...dasArray);
+          paramIndex += dasArray.length;
+        }
+      } catch (e) {
+        console.error('Error parsing dasFilter:', e);
+      }
+    }
+    
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+    
+    query += `
+      GROUP BY tl.pl2024_id, mpl.deskripsi_domain
+      ORDER BY tl.pl2024_id
+    `;
+    
+    console.log('Executing tutupan lahan query with params:', params);
+    const result = await pool.query(query, params);
+    console.log('Tutupan lahan data fetched:', result.rows.length, 'rows');
+    
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching tutupan lahan data:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
   }
 });
 
