@@ -608,19 +608,22 @@ const handleDasSelect = (das: any) => {
     // Clear selected areas when DAS is selected
     setSelectedAreas([]);
     
-    // TAMBAHAN: Render DAS boundary langsung
+    // Clear ALL admin boundaries when switching to DAS
+    Object.keys(layerGroupsRef.current).forEach(key => {
+      if (key.startsWith('admin_boundary')) {
+        mapInstanceRef.current?.removeLayer(layerGroupsRef.current[key]);
+        delete layerGroupsRef.current[key];
+      }
+    });
+    
+    // TAMBAHAN: Render DAS boundary langsung dengan unique key
     if (das.geom && mapInstanceRef.current && window.L) {
-      console.log('✅ Rendering DAS boundary...');
-      
-      // Remove existing DAS boundaries
-      Object.keys(layerGroupsRef.current).forEach(key => {
-        if (key.startsWith('das_boundary')) {
-          mapInstanceRef.current?.removeLayer(layerGroupsRef.current[key]);
-          delete layerGroupsRef.current[key];
-        }
-      });
+      console.log('✅ Rendering DAS boundary for:', das.nama_das);
       
       try {
+        // Unique key per DAS
+        const boundaryKey = `das_boundary_${das.nama_das.replace(/\s+/g, '_')}`;
+        
         const geoJsonLayer = window.L.geoJSON({
           type: 'Feature',
           geometry: das.geom,
@@ -636,9 +639,9 @@ const handleDasSelect = (das: any) => {
         });
         
         geoJsonLayer.addTo(mapInstanceRef.current);
-        layerGroupsRef.current['das_boundary'] = geoJsonLayer;
+        layerGroupsRef.current[boundaryKey] = geoJsonLayer;
         
-        console.log('✅ DAS boundary rendered for:', das.nama_das);
+        console.log('✅ DAS boundary rendered with key:', boundaryKey);
       } catch (error) {
         console.error('❌ Error rendering DAS boundary:', error);
       }
@@ -656,25 +659,26 @@ const handleDasSelect = (das: any) => {
 
 // Function untuk remove selected DAS
 const handleRemoveDas = async (index: number) => {
+  const removedDas = selectedDas[index];
   const newSelectedDas = selectedDas.filter((_, i) => i !== index);
   setSelectedDas(newSelectedDas);
   
-  // Remove DAS boundary layer
-  if (layerGroupsRef.current['das_boundary']) {
-    mapInstanceRef.current?.removeLayer(layerGroupsRef.current['das_boundary']);
-    delete layerGroupsRef.current['das_boundary'];
+  // Remove SPECIFIC DAS boundary layer
+  const boundaryKey = `das_boundary_${removedDas.nama_das.replace(/\s+/g, '_')}`;
+  if (layerGroupsRef.current[boundaryKey]) {
+    mapInstanceRef.current?.removeLayer(layerGroupsRef.current[boundaryKey]);
+    delete layerGroupsRef.current[boundaryKey];
+    console.log('🗑️ Removed DAS boundary:', boundaryKey);
   }
-
+  
   if (newSelectedDas.length > 0) {
     await updateMapBoundsDas(newSelectedDas);
   } else {
     // Tidak ada DAS yang dipilih, kembali ke bounds Indonesia
     setCurrentBounds(null);
-    
-    // Clear selected areas juga
     setSelectedAreas([]);
     
-     const kejadianResponse = await fetch(`${API_URL}/api/kejadian/years`);
+    const kejadianResponse = await fetch(`${API_URL}/api/kejadian/years`);
     const kejadianData = await kejadianResponse.json();
       
     const allKejadianLayers = kejadianData.years.map((year: number) => ({
@@ -683,7 +687,6 @@ const handleRemoveDas = async (index: number) => {
       year: year
     }));
 
-    // Reset availableLayers ke semua layer termasuk semua tahun kejadian
     setAvailableLayers({ 
       kerawanan: layerData.kerawanan || [], 
       mitigasiAdaptasi: layerData.mitigasiAdaptasi || [], 
@@ -691,20 +694,17 @@ const handleRemoveDas = async (index: number) => {
       kejadian: allKejadianLayers || []
     });
     
-    // Tunggu sebentar agar state ter-update
     setTimeout(async () => {
-      // Reload semua active layers untuk menampilkan data seluruh Indonesia
       for (const tableName of activeLayers) {
         if (tableName.startsWith('kejadian_')) {
           const year = parseInt(tableName.replace('kejadian_', ''));
           await loadKejadianLayer(tableName, year);
         } else {
-          await loadLayerInBounds(tableName);
+          await loadLayerInBounds(tableName, null);
         }
       }
     }, 100);
     
-    // Reset map view ke Indonesia
     if (mapInstanceRef.current) {
       mapInstanceRef.current.setView([-2.5, 118.0], 5);
     }
@@ -778,20 +778,22 @@ const handleAreaSelect = (area: any) => {
     // Clear selected DAS when area is selected
     setSelectedDas([]);
     
-    // TAMBAHAN: Render admin boundary langsung
+    // Clear ALL DAS boundaries when switching to admin areas
+    Object.keys(layerGroupsRef.current).forEach(key => {
+      if (key.startsWith('das_boundary')) {
+        mapInstanceRef.current?.removeLayer(layerGroupsRef.current[key]);
+        delete layerGroupsRef.current[key];
+      }
+    });
+    
+    // TAMBAHAN: Render admin boundary langsung dengan unique key
     if (area.geom && mapInstanceRef.current && window.L) {
       console.log('✅ Rendering admin boundary for:', area.label);
       
-      // Remove existing admin boundaries
-      Object.keys(layerGroupsRef.current).forEach(key => {
-        if (key.startsWith('admin_boundary')) {
-          mapInstanceRef.current?.removeLayer(layerGroupsRef.current[key]);
-          delete layerGroupsRef.current[key];
-        }
-      });
-      
       try {
-        const boundaryKey = `admin_boundary_${newSelectedAreas.length - 1}`;
+        // Unique key per area
+        const boundaryKey = `admin_boundary_${area.label.replace(/[,\s]+/g, '_')}`;
+        
         const geoJsonLayer = window.L.geoJSON({
           type: 'Feature',
           geometry: area.geom,
@@ -807,9 +809,9 @@ const handleAreaSelect = (area: any) => {
         });
         
         geoJsonLayer.addTo(mapInstanceRef.current);
-        layerGroupsRef.current['admin_boundary'] = geoJsonLayer;
+        layerGroupsRef.current[boundaryKey] = geoJsonLayer;
         
-        console.log('✅ Admin boundary rendered');
+        console.log('✅ Admin boundary rendered with key:', boundaryKey);
       } catch (error) {
         console.error('❌ Error rendering admin boundary:', error);
       }
@@ -827,25 +829,22 @@ const handleAreaSelect = (area: any) => {
 
 // Function untuk remove selected area
 const handleRemoveArea = async (index: number) => {
+  const removedArea = selectedAreas[index];
   const newSelectedAreas = selectedAreas.filter((_, i) => i !== index);
   setSelectedAreas(newSelectedAreas);
   
-  // Remove admin boundary layer
-  Object.keys(layerGroupsRef.current).forEach(key => {
-  if (key.startsWith('admin_boundary_')) {
-    mapInstanceRef.current?.removeLayer(layerGroupsRef.current[key]);
-    delete layerGroupsRef.current[key];
+  // Remove SPECIFIC admin boundary layer
+  const boundaryKey = `admin_boundary_${removedArea.label.replace(/[,\s]+/g, '_')}`;
+  if (layerGroupsRef.current[boundaryKey]) {
+    mapInstanceRef.current?.removeLayer(layerGroupsRef.current[boundaryKey]);
+    delete layerGroupsRef.current[boundaryKey];
+    console.log('🗑️ Removed admin boundary:', boundaryKey);
   }
-});
 
   if (newSelectedAreas.length > 0) {
-    // Masih ada area yang dipilih, update bounds
     await updateMapBounds(newSelectedAreas);
   } else {
-    // Tidak ada area yang dipilih, kembali ke bounds Indonesia
     setCurrentBounds(null);
-    
-    // Clear selected DAS juga
     setSelectedDas([]);
     
     const kejadianResponse = await fetch(`${API_URL}/api/kejadian/years`);
@@ -857,7 +856,6 @@ const handleRemoveArea = async (index: number) => {
       year: year
     }));
 
-    // Reset availableLayers ke semua layer termasuk semua tahun kejadian
     setAvailableLayers({ 
       kerawanan: layerData.kerawanan || [], 
       mitigasiAdaptasi: layerData.mitigasiAdaptasi || [], 
@@ -865,20 +863,17 @@ const handleRemoveArea = async (index: number) => {
       kejadian: allKejadianLayers || []
     });
     
-    // Tunggu sebentar agar state ter-update
     setTimeout(async () => {
-      // Reload semua active layers untuk menampilkan data seluruh Indonesia
       for (const tableName of activeLayers) {
         if (tableName.startsWith('kejadian_')) {
           const year = parseInt(tableName.replace('kejadian_', ''));
           await loadKejadianLayer(tableName, year);
         } else {
-          await loadLayerInBounds(tableName);
+          await loadLayerInBounds(tableName, null);
         }
       }
     }, 100);
     
-    // Reset map view ke Indonesia
     if (mapInstanceRef.current) {
       mapInstanceRef.current.setView([-2.5, 118.0], 5);
     }

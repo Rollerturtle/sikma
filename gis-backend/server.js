@@ -10648,7 +10648,7 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
   
   try {
     const { tableName } = req.params;
-    const { bounds, zoom, dasFilter } = req.query; // TAMBAH dasFilter
+    const { bounds, zoom, dasFilter } = req.query;
     
     // Validate table name untuk keamanan
     const validationResult = await client.query(
@@ -10678,36 +10678,52 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
     let tolerance;
     
     if (zoomLevel <= 5) {
-      // Zoom sangat jauh - simplifikasi tinggi
       tolerance = 0.01;
       console.log('Zoom level', zoomLevel, '- High simplification (tolerance:', tolerance, ')');
     } else if (zoomLevel <= 7) {
-      // Zoom jauh - simplifikasi sedang
       tolerance = 0.005;
       console.log('Zoom level', zoomLevel, '- Medium simplification (tolerance:', tolerance, ')');
     } else if (zoomLevel <= 9) {
-      // Zoom sedang - simplifikasi rendah
       tolerance = 0.001;
       console.log('Zoom level', zoomLevel, '- Low simplification (tolerance:', tolerance, ')');
     } else if (zoomLevel <= 11) {
-      // Zoom sedang-dekat - simplifikasi sangat rendah
       tolerance = 0.0005;
       console.log('Zoom level', zoomLevel, '- Very low simplification (tolerance:', tolerance, ')');
     } else {
-      // Zoom dekat (>= 12) - TIDAK ADA simplifikasi
       tolerance = 0;
       console.log('Zoom level', zoomLevel, '- NO simplification (full detail)');
     }
     
-    // Build WHERE clause dengan bounds jika ada
+    // Build WHERE clause dan geometry select
     let whereClause = 'WHERE geom IS NOT NULL';
+    let geometrySelect;
+    
     if (bounds) {
       const [south, west, north, east] = bounds.split(',').map(Number);
       const boundsWKT = `POLYGON((${west} ${south}, ${east} ${south}, ${east} ${north}, ${west} ${north}, ${west} ${south}))`;
-      whereClause += ` AND ST_Intersects(geom, ST_GeomFromText('${boundsWKT}', 4326))`;
+      
+      // Filter: HANYA ambil geometry yang SEPENUHNYA di dalam bounds
+      // Geometry yang sebagian keluar akan TIDAK ditampilkan sama sekali
+      whereClause += ` AND ST_Within(geom, ST_GeomFromText('${boundsWKT}', 4326))`;
+      
+      // Tidak perlu clip karena semua geometry sudah pasti di dalam bounds
+      if (tolerance > 0) {
+        geometrySelect = `ST_AsGeoJSON(ST_Simplify(geom, ${tolerance}))`;
+      } else {
+        geometrySelect = `ST_AsGeoJSON(geom)`;
+      }
+      
+      console.log(`Using ST_Within for strict boundary filtering on ${tableName}`);
+    } else {
+      // Tidak ada bounds, gunakan geometry original
+      if (tolerance > 0) {
+        geometrySelect = `ST_AsGeoJSON(ST_Simplify(geom, ${tolerance}))`;
+      } else {
+        geometrySelect = `ST_AsGeoJSON(geom)`;
+      }
     }
     
-    // TAMBAH: Add DAS filter if provided and table has nama_das column
+    // Add DAS filter if provided and table has nama_das column
     if (dasFilter) {
       try {
         const dasArray = JSON.parse(dasFilter);
@@ -10725,11 +10741,7 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
       }
     }
     
-    // Query dengan simplifikasi geometri (atau tanpa simplifikasi jika tolerance = 0)
-    const geometrySelect = tolerance > 0 
-      ? `ST_AsGeoJSON(ST_Simplify(geom, ${tolerance}))` 
-      : `ST_AsGeoJSON(geom)`;
-    
+    // Query dengan filter ST_Within (strict)
     const query = `
       SELECT 
         ${geometrySelect} as geometry,
@@ -10904,129 +10916,97 @@ app.get('/api/areas/search', async (req, res) => {
     let result;
     
     switch(level.toLowerCase()) {
-      case 'provinsi':
-        // Ambil daftar provinsi dulu
-        const provinsiList = await client.query(`
-          SELECT DISTINCT provinsi
-          FROM provinsi
-          WHERE LOWER(provinsi) LIKE $1
-          ORDER BY provinsi
-          LIMIT 50
-        `, [searchPattern]);
-        
-        // Untuk setiap provinsi, ambil geom
-        const provinsiResults = [];
-        for (const row of provinsiList.rows) {
-          const geomResult = await client.query(`
-            SELECT ST_AsGeoJSON(ST_SetSRID(geom, 4326)) as geom_json
-            FROM provinsi
-            WHERE provinsi = $1
-            LIMIT 1
-          `, [row.provinsi]);
-          
-          provinsiResults.push({
-            label: row.provinsi,
-            provinsi: row.provinsi,
-            level: 'provinsi',
-            geom: geomResult.rows[0]?.geom_json ? JSON.parse(geomResult.rows[0].geom_json) : null
-          });
-        }
-        
-        return res.json(provinsiResults);
-        
-      case 'kabupaten':
-        const kabupatenList = await client.query(`
-          SELECT DISTINCT kab_kota, provinsi
-          FROM kab_kota
-          WHERE LOWER(kab_kota) LIKE $1
-          ORDER BY kab_kota
-          LIMIT 50
-        `, [searchPattern]);
-        
-        const kabupatenResults = [];
-        for (const row of kabupatenList.rows) {
-          const geomResult = await client.query(`
-            SELECT ST_AsGeoJSON(ST_SetSRID(geom, 4326)) as geom_json
-            FROM kab_kota
-            WHERE kab_kota = $1 AND provinsi = $2
-            LIMIT 1
-          `, [row.kab_kota, row.provinsi]);
-          
-          kabupatenResults.push({
-            label: `${row.kab_kota}, ${row.provinsi}`,
-            kab_kota: row.kab_kota,
-            provinsi: row.provinsi,
-            level: 'kabupaten',
-            geom: geomResult.rows[0]?.geom_json ? JSON.parse(geomResult.rows[0].geom_json) : null
-          });
-        }
-        
-        return res.json(kabupatenResults);
-        
-      case 'kecamatan':
-        const kecamatanList = await client.query(`
-          SELECT DISTINCT kecamatan, kab_kota, provinsi
-          FROM kecamatan
-          WHERE LOWER(kecamatan) LIKE $1
-          ORDER BY kecamatan
-          LIMIT 50
-        `, [searchPattern]);
-        
-        const kecamatanResults = [];
-        for (const row of kecamatanList.rows) {
-          const geomResult = await client.query(`
-            SELECT ST_AsGeoJSON(ST_SetSRID(geom, 4326)) as geom_json
-            FROM kecamatan
-            WHERE kecamatan = $1 AND kab_kota = $2 AND provinsi = $3
-            LIMIT 1
-          `, [row.kecamatan, row.kab_kota, row.provinsi]);
-          
-          kecamatanResults.push({
-            label: `${row.kecamatan}, ${row.kab_kota}, ${row.provinsi}`,
-            kecamatan: row.kecamatan,
-            kab_kota: row.kab_kota,
-            provinsi: row.provinsi,
-            level: 'kecamatan',
-            geom: geomResult.rows[0]?.geom_json ? JSON.parse(geomResult.rows[0].geom_json) : null
-          });
-        }
-        
-        return res.json(kecamatanResults);
-        
-      case 'kelurahan':
-        const kelurahanList = await client.query(`
-          SELECT DISTINCT kel_desa, kecamatan, kab_kota, provinsi
-          FROM kel_desa
-          WHERE LOWER(kel_desa) LIKE $1
-          ORDER BY kel_desa
-          LIMIT 50
-        `, [searchPattern]);
-        
-        const kelurahanResults = [];
-        for (const row of kelurahanList.rows) {
-          const geomResult = await client.query(`
-            SELECT ST_AsGeoJSON(ST_SetSRID(geom, 4326)) as geom_json
-            FROM kel_desa
-            WHERE kel_desa = $1 AND kecamatan = $2 AND kab_kota = $3 AND provinsi = $4
-            LIMIT 1
-          `, [row.kel_desa, row.kecamatan, row.kab_kota, row.provinsi]);
-          
-          kelurahanResults.push({
-            label: `${row.kel_desa}, ${row.kecamatan}, ${row.kab_kota}, ${row.provinsi}`,
-            kel_desa: row.kel_desa,
-            kecamatan: row.kecamatan,
-            kab_kota: row.kab_kota,
-            provinsi: row.provinsi,
-            level: 'kelurahan',
-            geom: geomResult.rows[0]?.geom_json ? JSON.parse(geomResult.rows[0].geom_json) : null
-          });
-        }
-        
-        return res.json(kelurahanResults);
-        
-      default:
-        return res.status(400).json({ error: 'Invalid level. Use: provinsi, kabupaten, kecamatan, or kelurahan' });
-    }
+  case 'provinsi':
+  const provinsiResult = await client.query(`
+    SELECT 
+      provinsi,
+      ST_AsGeoJSON(ST_SetSRID(ST_Union(geom), 4326)) as geom_json
+    FROM provinsi
+    WHERE LOWER(provinsi) LIKE $1
+    GROUP BY provinsi
+    ORDER BY provinsi
+    LIMIT 50
+  `, [searchPattern]);
+  
+  return res.json(provinsiResult.rows.map(row => ({
+    label: row.provinsi,
+    provinsi: row.provinsi,
+    level: 'provinsi',
+    geom: row.geom_json ? JSON.parse(row.geom_json) : null
+  })));
+    
+  case 'kabupaten':
+  const kabupatenResult = await client.query(`
+    SELECT 
+      kab_kota,
+      provinsi,
+      ST_AsGeoJSON(ST_SetSRID(ST_Union(geom), 4326)) as geom_json
+    FROM kab_kota
+    WHERE LOWER(kab_kota) LIKE $1
+    GROUP BY kab_kota, provinsi
+    ORDER BY kab_kota
+    LIMIT 50
+  `, [searchPattern]);
+  
+  return res.json(kabupatenResult.rows.map(row => ({
+    label: `${row.kab_kota}, ${row.provinsi}`,
+    kab_kota: row.kab_kota,
+    provinsi: row.provinsi,
+    level: 'kabupaten',
+    geom: row.geom_json ? JSON.parse(row.geom_json) : null
+  })));
+    
+  case 'kecamatan':
+  const kecamatanResult = await client.query(`
+    SELECT 
+      kecamatan,
+      kab_kota,
+      provinsi,
+      ST_AsGeoJSON(ST_SetSRID(ST_Union(geom), 4326)) as geom_json
+    FROM kecamatan
+    WHERE LOWER(kecamatan) LIKE $1
+    GROUP BY kecamatan, kab_kota, provinsi
+    ORDER BY kecamatan
+    LIMIT 50
+  `, [searchPattern]);
+  
+  return res.json(kecamatanResult.rows.map(row => ({
+    label: `${row.kecamatan}, ${row.kab_kota}, ${row.provinsi}`,
+    kecamatan: row.kecamatan,
+    kab_kota: row.kab_kota,
+    provinsi: row.provinsi,
+    level: 'kecamatan',
+    geom: row.geom_json ? JSON.parse(row.geom_json) : null
+  })));
+    
+  case 'kelurahan':
+  const kelurahanResult = await client.query(`
+    SELECT 
+      kel_desa,
+      kecamatan,
+      kab_kota,
+      provinsi,
+      ST_AsGeoJSON(ST_SetSRID(ST_Union(geom), 4326)) as geom_json
+    FROM kel_desa
+    WHERE LOWER(kel_desa) LIKE $1
+    GROUP BY kel_desa, kecamatan, kab_kota, provinsi
+    ORDER BY kel_desa
+    LIMIT 50
+  `, [searchPattern]);
+  
+  return res.json(kelurahanResult.rows.map(row => ({
+    label: `${row.kel_desa}, ${row.kecamatan}, ${row.kab_kota}, ${row.provinsi}`,
+    kel_desa: row.kel_desa,
+    kecamatan: row.kecamatan,
+    kab_kota: row.kab_kota,
+    provinsi: row.provinsi,
+    level: 'kelurahan',
+    geom: row.geom_json ? JSON.parse(row.geom_json) : null
+  })));
+    
+  default:
+    return res.status(400).json({ error: 'Invalid level. Use: provinsi, kabupaten, kecamatan, or kelurahan' });
+}
     
   } catch (error) {
     console.error('Error searching areas:', error);
@@ -11260,35 +11240,26 @@ app.get('/api/das/search', async (req, res) => {
     
     const searchPattern = `%${query.toLowerCase()}%`;
     
-    // Ambil daftar DAS dulu (tanpa geom)
-    const dasList = await client.query(`
-      SELECT DISTINCT nama_das
+    // PENTING: Gunakan ST_Union untuk gabungkan SEMUA polygon dari 1 DAS
+    // GROUP BY nama_das, lalu union semua geometri
+    const result = await client.query(`
+      SELECT 
+        nama_das,
+        ST_AsGeoJSON(ST_SetSRID(ST_Union(geom), 4326)) as geom_json
       FROM das_adm
       WHERE LOWER(nama_das) LIKE $1
+      GROUP BY nama_das
       ORDER BY nama_das
       LIMIT 50
     `, [searchPattern]);
     
-    // Untuk setiap DAS, ambil satu geom representatif
-    const dasResults = [];
-    for (const row of dasList.rows) {
-      const geomResult = await client.query(`
-        SELECT ST_AsGeoJSON(ST_SetSRID(geom, 4326)) as geom_json
-        FROM das_adm
-        WHERE nama_das = $1
-        LIMIT 1
-      `, [row.nama_das]);
-      
-      const geomData = geomResult.rows[0]?.geom_json ? JSON.parse(geomResult.rows[0].geom_json) : null;
-      
-      dasResults.push({
-        label: row.nama_das,
-        nama_das: row.nama_das,
-        geom: geomData
-      });
-    }
+    const dasResults = result.rows.map(row => ({
+      label: row.nama_das,
+      nama_das: row.nama_das,
+      geom: row.geom_json ? JSON.parse(row.geom_json) : null
+    }));
     
-    console.log(`Returning ${dasResults.length} DAS results with geom`);
+    console.log(`Returning ${dasResults.length} DAS results with geom (unioned)`);
     res.json(dasResults);
     
   } catch (error) {
