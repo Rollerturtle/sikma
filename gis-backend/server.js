@@ -36,11 +36,11 @@ app.use(express.urlencoded({
 }));
 
 // Set timeout untuk large file uploads (2 jam)
-// app.use((req, res, next) => {
-//   req.setTimeout(7200000); // 2 hours (120 minutes)
-//   res.setTimeout(7200000); // 2 hours
-//   next();
-// });
+app.use((req, res, next) => {
+  req.setTimeout(7200000); // 2 hours (120 minutes)
+  res.setTimeout(7200000); // 2 hours
+  next();
+});
 
 // Keep-alive configuration
 app.use((req, res, next) => {
