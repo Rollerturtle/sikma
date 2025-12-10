@@ -94,7 +94,7 @@ const fetchDasByCoordinates = async (longitude: number, latitude: number) => {
     setIsLoadingDas(true);
     
     const response = await fetch(
-      `http://${API_URL}:3001/api/das/by-coordinates?longitude=${longitude}&latitude=${latitude}`
+      `${API_URL}/api/das/by-coordinates?longitude=${longitude}&latitude=${latitude}`
     );
     
     const data = await response.json();
@@ -216,7 +216,7 @@ const fetchDasByCoordinates = async (longitude: number, latitude: number) => {
         formDataToSend.append('images', image);
       });
       
-      const response = await fetch(`http://${API_URL}:3001/api/kejadian/add`, {
+      const response = await fetch(`${API_URL}/api/kejadian/add`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -263,7 +263,7 @@ const fetchDasByCoordinates = async (longitude: number, latitude: number) => {
   const fetchIncidents = async () => {
     try {
       setIsLoadingIncidents(true);
-      const response = await fetch(`http://${API_URL}:3001/api/kejadian/list`);
+      const response = await fetch(`${API_URL}/api/kejadian/list`);
       const data = await response.json();
       
       if (data.success) {
@@ -287,7 +287,7 @@ const fetchDasByCoordinates = async (longitude: number, latitude: number) => {
           return {
             id: item.id,
             title: item.title,
-            image: item.thumbnail_path ? `http://${API_URL}:3001${item.thumbnail_path}` : 'https://images.unsplash.com/photo-1611273426858-450d8e3c9fce?w=400',
+            image: item.thumbnail_path ? `${API_URL}${item.thumbnail_path}` : 'https://images.unsplash.com/photo-1611273426858-450d8e3c9fce?w=400',
             category: item.category,
             type: item.category.toLowerCase().includes('banjir') ? 'banjir' : 
                   item.category.toLowerCase().includes('longsor') ? 'longsor' : 'kebakaran',
@@ -317,7 +317,7 @@ const fetchDasByCoordinates = async (longitude: number, latitude: number) => {
 
     try {
       const token = localStorage.getItem('adminToken');
-      const response = await fetch(`http://${API_URL}:3001/api/kejadian/${id}`, {
+      const response = await fetch(`${API_URL}/api/kejadian/${id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -342,7 +342,7 @@ const fetchDasByCoordinates = async (longitude: number, latitude: number) => {
   const handleToggleFeatured = async (id, currentStatus) => {
     try {
       const token = localStorage.getItem('adminToken');
-      const response = await fetch(`http://${API_URL}:3001/api/kejadian/${id}/featured`, {
+      const response = await fetch(`${API_URL}/api/kejadian/${id}/featured`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -372,7 +372,7 @@ const fetchDasByCoordinates = async (longitude: number, latitude: number) => {
       
       if (token && userStr) {
         try {
-          const response = await fetch(`http://${API_URL}:3001/api/admin/verify`, {
+          const response = await fetch(`${API_URL}/api/admin/verify`, {
             method: 'GET',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -433,7 +433,7 @@ const fetchDasByCoordinates = async (longitude: number, latitude: number) => {
     
     try {
       const token = localStorage.getItem('adminToken');
-      const response = await fetch(`http://${API_URL}:3001/api/kejadian/add`, {
+      const response = await fetch(`${API_URL}/api/kejadian/add`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
