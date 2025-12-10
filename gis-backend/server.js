@@ -20,7 +20,34 @@ app.use(cors({
   origin: true,  // Allow semua origin
   credentials: true
 }));
-app.use(express.json());
+// app.use(express.json());
+
+app.use(express.json({ 
+  limit: '3gb',  // 3GB limit for JSON payload
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
+
+app.use(express.urlencoded({ 
+  limit: '3gb',  // 3GB limit for URL-encoded data
+  extended: true,
+  parameterLimit: 100000 // Increase parameter limit
+}));
+
+// Set timeout untuk large file uploads (2 jam)
+// app.use((req, res, next) => {
+//   req.setTimeout(7200000); // 2 hours (120 minutes)
+//   res.setTimeout(7200000); // 2 hours
+//   next();
+// });
+
+// Keep-alive configuration
+app.use((req, res, next) => {
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Keep-Alive', 'timeout=7200'); // 2 hours
+  next();
+});
 
 const dbConfig = {
   connectionString: process.env.DATABASE_URL,
@@ -11413,6 +11440,14 @@ app.use((req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
+
+// Configure server for large file uploads (3GB max)
+server.timeout = 7200000; // 2 hours
+server.keepAliveTimeout = 7200000; // 2 hours
+server.headersTimeout = 7210000; // Slightly higher than keepAliveTimeout
+
+// Increase max headers count for large multipart uploads
+server.maxHeadersCount = 3000;
