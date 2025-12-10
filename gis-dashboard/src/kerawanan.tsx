@@ -81,7 +81,7 @@ const [availableLayers, setAvailableLayers] = useState<{
     longitude: number;
   }>>([]);
 
-  const loadLayerInBounds = async (tableName: string) => {
+  const loadLayerInBounds = async (tableName: string, customBounds?: [[number, number], [number, number]]) => {
   if (!mapInstanceRef.current || !window.L) {
     console.log('Map not ready');
     return;
@@ -93,10 +93,12 @@ const [availableLayers, setAvailableLayers] = useState<{
     
     // Jika ada currentBounds (filter administratif dipilih), gunakan itu
     // Jika tidak ada, gunakan bounds seluruh Indonesia
-    if (currentBounds) {
-      const [[minLat, minLng], [maxLat, maxLng]] = currentBounds;
+    const boundsToUse = customBounds || currentBounds;
+
+    if (boundsToUse) {
+      const [[minLat, minLng], [maxLat, maxLng]] = boundsToUse;
       boundsString = `${minLat},${minLng},${maxLat},${maxLng}`;
-      console.log('Loading layer:', tableName, 'zoom:', zoom, 'admin bounds:', boundsString);
+      console.log('Loading layer:', tableName, 'zoom:', zoom, 'bounds:', boundsString);
     } else {
       // Bounds seluruh Indonesia (approx)
       // Format: minLat, minLng, maxLat, maxLng
@@ -597,7 +599,6 @@ const handleDasSearchChange = (value: string) => {
 
 // Function untuk select DAS
 const handleDasSelect = (das: any) => {
-  // Check if already selected
   const isAlreadySelected = selectedDas.some(d => d.nama_das === das.nama_das);
   
   if (!isAlreadySelected) {
@@ -606,6 +607,44 @@ const handleDasSelect = (das: any) => {
     
     // Clear selected areas when DAS is selected
     setSelectedAreas([]);
+    
+    // TAMBAHAN: Render DAS boundary langsung
+    if (das.geom && mapInstanceRef.current && window.L) {
+      console.log('✅ Rendering DAS boundary...');
+      
+      // Remove existing DAS boundaries
+      Object.keys(layerGroupsRef.current).forEach(key => {
+        if (key.startsWith('das_boundary')) {
+          mapInstanceRef.current?.removeLayer(layerGroupsRef.current[key]);
+          delete layerGroupsRef.current[key];
+        }
+      });
+      
+      try {
+        const geoJsonLayer = window.L.geoJSON({
+          type: 'Feature',
+          geometry: das.geom,
+          properties: { nama_das: das.nama_das }
+        }, {
+          style: {
+            color: '#3b82f6',
+            weight: 3,
+            opacity: 0.8,
+            fillColor: '#dbeafe',
+            fillOpacity: 0.1
+          }
+        });
+        
+        geoJsonLayer.addTo(mapInstanceRef.current);
+        layerGroupsRef.current['das_boundary'] = geoJsonLayer;
+        
+        console.log('✅ DAS boundary rendered for:', das.nama_das);
+      } catch (error) {
+        console.error('❌ Error rendering DAS boundary:', error);
+      }
+    } else {
+      console.log('❌ Cannot render DAS boundary - geom missing or map not ready');
+    }
     
     updateMapBoundsDas(newSelectedDas);
   }
@@ -620,6 +659,12 @@ const handleRemoveDas = async (index: number) => {
   const newSelectedDas = selectedDas.filter((_, i) => i !== index);
   setSelectedDas(newSelectedDas);
   
+  // Remove DAS boundary layer
+  if (layerGroupsRef.current['das_boundary']) {
+    mapInstanceRef.current?.removeLayer(layerGroupsRef.current['das_boundary']);
+    delete layerGroupsRef.current['das_boundary'];
+  }
+
   if (newSelectedDas.length > 0) {
     await updateMapBoundsDas(newSelectedDas);
   } else {
@@ -693,12 +738,11 @@ const updateMapBoundsDas = async (dasList: Array<any>) => {
       setTimeout(async () => {
         const dasNames = dasList.map(d => d.nama_das);
         for (const tableName of activeLayers) {
-          // Check jika kejadian layer
           if (tableName.startsWith('kejadian_')) {
             const year = parseInt(tableName.replace('kejadian_', ''));
             await loadKejadianLayer(tableName, year, dasNames);
           } else {
-            await loadLayerInBounds(tableName);
+            await loadLayerInBounds(tableName, data.bounds); // PASS BOUNDS LANGSUNG
           }
         }
       }, 100);
@@ -710,7 +754,6 @@ const updateMapBoundsDas = async (dasList: Array<any>) => {
 
 // Function untuk select area
 const handleAreaSelect = (area: any) => {
-  // Check if already selected - comparison based on level
   const isAlreadySelected = selectedAreas.some(a => {
     if (a.level !== area.level) return false;
     
@@ -735,6 +778,45 @@ const handleAreaSelect = (area: any) => {
     // Clear selected DAS when area is selected
     setSelectedDas([]);
     
+    // TAMBAHAN: Render admin boundary langsung
+    if (area.geom && mapInstanceRef.current && window.L) {
+      console.log('✅ Rendering admin boundary for:', area.label);
+      
+      // Remove existing admin boundaries
+      Object.keys(layerGroupsRef.current).forEach(key => {
+        if (key.startsWith('admin_boundary')) {
+          mapInstanceRef.current?.removeLayer(layerGroupsRef.current[key]);
+          delete layerGroupsRef.current[key];
+        }
+      });
+      
+      try {
+        const boundaryKey = `admin_boundary_${newSelectedAreas.length - 1}`;
+        const geoJsonLayer = window.L.geoJSON({
+          type: 'Feature',
+          geometry: area.geom,
+          properties: { ...area }
+        }, {
+          style: {
+            color: '#ef4444',
+            weight: 3,
+            opacity: 0.8,
+            fillColor: '#fee2e2',
+            fillOpacity: 0.1
+          }
+        });
+        
+        geoJsonLayer.addTo(mapInstanceRef.current);
+        layerGroupsRef.current['admin_boundary'] = geoJsonLayer;
+        
+        console.log('✅ Admin boundary rendered');
+      } catch (error) {
+        console.error('❌ Error rendering admin boundary:', error);
+      }
+    } else {
+      console.log('❌ Cannot render admin boundary - geom missing or map not ready');
+    }
+    
     updateMapBounds(newSelectedAreas);
   }
   
@@ -748,6 +830,14 @@ const handleRemoveArea = async (index: number) => {
   const newSelectedAreas = selectedAreas.filter((_, i) => i !== index);
   setSelectedAreas(newSelectedAreas);
   
+  // Remove admin boundary layer
+  Object.keys(layerGroupsRef.current).forEach(key => {
+  if (key.startsWith('admin_boundary_')) {
+    mapInstanceRef.current?.removeLayer(layerGroupsRef.current[key]);
+    delete layerGroupsRef.current[key];
+  }
+});
+
   if (newSelectedAreas.length > 0) {
     // Masih ada area yang dipilih, update bounds
     await updateMapBounds(newSelectedAreas);
@@ -799,11 +889,13 @@ const handleRemoveArea = async (index: number) => {
 const updateMapBounds = async (areas: Array<any>) => {
   if (areas.length === 0 || !mapInstanceRef.current) return;
 
+  const areasWithoutGeom = areas.map(({ geom, ...rest }) => rest);
+
   try {
     const response = await fetch(`${API_URL}/api/areas/bounds`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ selectedAreas: areas })
+      body: JSON.stringify({ selectedAreas: areasWithoutGeom })
     });
     
     const data = await response.json();
@@ -819,12 +911,11 @@ const updateMapBounds = async (areas: Array<any>) => {
       // Tunggu sebentar agar state ter-update, lalu reload layers
       setTimeout(async () => {
         for (const tableName of activeLayers) {
-          // Check jika kejadian layer
           if (tableName.startsWith('kejadian_')) {
             const year = parseInt(tableName.replace('kejadian_', ''));
-            await loadKejadianLayer(tableName, year);
+            await loadKejadianLayer(tableName, year, null);
           } else {
-            await loadLayerInBounds(tableName);
+            await loadLayerInBounds(tableName, data.bounds); // PASS BOUNDS LANGSUNG
           }
         }
       }, 100);
@@ -2350,7 +2441,7 @@ const fetchLayers = async () => {
     {/* Tambah Data Button */}
     {isAuthenticated && (
       <button
-        onClick={() => handleAddClick('kerawanan')}
+        onClick={() => handleAddClick('mitigasiAdaptasi')}
         className="flex items-center gap-1 px-2 py-1 border-2 border-dashed border-blue-400 text-blue-500 rounded hover:bg-blue-50 transition-colors justify-center"
       >
       <span className="text-base font-bold">+</span>
@@ -2394,7 +2485,7 @@ const fetchLayers = async () => {
     {/* Tambah Data Button */}
     {isAuthenticated && (
       <button
-        onClick={() => handleAddClick('kerawanan')}
+        onClick={() => handleAddClick('lainnya')}
         className="flex items-center gap-1 px-2 py-1 border-2 border-dashed border-blue-400 text-blue-500 rounded hover:bg-blue-50 transition-colors justify-center"
       >
       <span className="text-base font-bold">+</span>
