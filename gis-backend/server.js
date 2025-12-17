@@ -8785,6 +8785,7 @@ const createKejadianTable = async () => {
       das VARCHAR(100),
       longitude DOUBLE PRECISION NOT NULL,
       latitude DOUBLE PRECISION NOT NULL,
+      curah_hujan DOUBLE PRECISION,
       featured BOOLEAN DEFAULT true,
       thumbnail_path VARCHAR(500),
       images_paths TEXT[],
@@ -8828,7 +8829,7 @@ const createLayerMetadataTable = async () => {
     CREATE TABLE IF NOT EXISTS layer_metadata (
       id SERIAL PRIMARY KEY,
       table_name VARCHAR(255) NOT NULL UNIQUE,
-      section VARCHAR(50) NOT NULL CHECK (section IN ('kerawanan', 'mitigasiAdaptasi', 'lainnya')),
+      section VARCHAR(50) NOT NULL CHECK (section IN ('kerawanan', 'mitigasiAdaptasi', 'lainnya', 'kejadian')),
       original_files TEXT[],
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -9006,6 +9007,7 @@ app.post('/api/kejadian/add', verifyToken, upload.fields([
       das,
       longitude,
       latitude,
+      curahHujan,
       featured,
       description
     } = req.body;
@@ -9025,9 +9027,9 @@ app.post('/api/kejadian/add', verifyToken, upload.fields([
     const insertQuery = `
       INSERT INTO kejadian (
         title, category, date, location, das, 
-        longitude, latitude, featured, description,
+        longitude, latitude, curah_hujan, featured, description,
         thumbnail_path, images_paths
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *
     `;
 
@@ -9039,6 +9041,7 @@ app.post('/api/kejadian/add', verifyToken, upload.fields([
       das || null,
       parseFloat(longitude),
       parseFloat(latitude),
+      curahHujan ? parseFloat(curahHujan) : null,
       featured !== undefined ? featured : true,
       description || null,
       thumbnailPath,
@@ -9059,6 +9062,111 @@ app.post('/api/kejadian/add', verifyToken, upload.fields([
       success: false,
       message: 'Gagal menambahkan kejadian',
       error: error.message
+    });
+  }
+});
+
+// Endpoint untuk fetch tutupan lahan berdasarkan koordinat
+app.get('/api/tutupan-lahan/by-coordinates', async (req, res) => {
+  try {
+    const { longitude, latitude } = req.query;
+    
+    if (!longitude || !latitude) {
+      return res.status(400).json({ 
+        error: 'Missing required parameters: longitude, latitude' 
+      });
+    }
+
+    console.log('Fetching tutupan lahan for coordinates:', { longitude, latitude });
+
+    // Query dengan JOIN ke mapping_penutupan_lahan untuk deskripsi
+    const query = `
+      SELECT DISTINCT 
+        tl.pl2024_id,
+        mpl.deskripsi_domain,
+        COUNT(*) as count
+      FROM tutupan_lahan tl
+      LEFT JOIN mapping_penutupan_lahan mpl ON tl.pl2024_id::text = mpl.kode_domain
+      WHERE ST_Intersects(
+        tl.geom,
+        ST_Buffer(
+          ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
+          1000
+        )::geometry
+      )
+      GROUP BY tl.pl2024_id, mpl.deskripsi_domain
+      ORDER BY count DESC
+      LIMIT 10
+    `;
+    
+    const result = await pool.query(query, [parseFloat(longitude), parseFloat(latitude)]);
+    
+    console.log(`Found ${result.rows.length} tutupan lahan records`);
+    
+    res.json({
+      success: true,
+      data: result.rows
+    });
+    
+  } catch (error) {
+    console.error('Error fetching tutupan lahan:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch tutupan lahan data',
+      details: error.message 
+    });
+  }
+});
+
+app.get('/api/das/geometry-by-coordinates', async (req, res) => {
+  try {
+    const { longitude, latitude } = req.query;
+    
+    if (!longitude || !latitude) {
+      return res.status(400).json({ 
+        error: 'Missing required parameters: longitude, latitude' 
+      });
+    }
+
+    console.log('Fetching DAS geometry for coordinates:', { longitude, latitude });
+
+    // Query dengan ST_Intersects dan buffer kecil untuk menghindari SRID issue
+    const query = `
+      SELECT 
+        nama_das,
+        ST_AsGeoJSON(ST_SetSRID(geom, 4326))::json as geom
+      FROM das_adm
+      WHERE ST_Intersects(
+        ST_SetSRID(geom, 4326),
+        ST_Buffer(
+          ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
+          1
+        )::geometry
+      )
+      LIMIT 1
+    `;
+    
+    const result = await pool.query(query, [parseFloat(longitude), parseFloat(latitude)]);
+    
+    if (result.rows.length > 0) {
+      console.log(`Found DAS: ${result.rows[0].nama_das}`);
+      
+      res.json({
+        success: true,
+        dasName: result.rows[0].nama_das,
+        geom: result.rows[0].geom
+      });
+    } else {
+      res.json({
+        success: false,
+        message: 'No DAS found for these coordinates'
+      });
+    }
+    
+  } catch (error) {
+    console.error('Error fetching DAS geometry:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch DAS geometry',
+      details: error.message 
     });
   }
 });
@@ -9163,12 +9271,225 @@ app.get('/api/kejadian/list', async (req, res) => {
 //   }
 // });
 
+// Endpoint untuk fetch data kerawanan berdasarkan kategori dan koordinat
+app.get('/api/kerawanan/by-coordinates', async (req, res) => {
+  try {
+    const { longitude, latitude, category } = req.query;
+    
+    if (!longitude || !latitude || !category) {
+      return res.status(400).json({ 
+        error: 'Missing required parameters: longitude, latitude, category' 
+      });
+    }
+
+    console.log('Fetching kerawanan data for:', { longitude, latitude, category });
+
+    let query, tableName, groupByColumn, areaColumn;
+    
+    // Tentukan tabel dan kolom berdasarkan kategori
+    if (category === 'Banjir') {
+      tableName = 'rawan_limpasan';
+      groupByColumn = 'limpasan';
+      areaColumn = 'shape_leng';
+      
+      query = `
+        SELECT 
+          ${groupByColumn} as tingkat,
+          SUM(${areaColumn}) as luas_total
+        FROM ${tableName}
+        WHERE ST_Intersects(
+          ST_SetSRID(geom, 4326),
+          ST_Buffer(
+            ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
+            1000
+          )::geometry
+        )
+        GROUP BY ${groupByColumn}
+        ORDER BY 
+          CASE ${groupByColumn}
+            WHEN 'Ekstrim' THEN 1
+            WHEN 'Tinggi' THEN 2
+            WHEN 'Normal' THEN 3
+            ELSE 4
+          END
+      `;
+      
+    } else if (category === 'Kebakaran Hutan dan Kekeringan') {
+      tableName = 'rawan_karhutla';
+      groupByColumn = 'kelas';
+      areaColumn = 'luas_ha';
+      
+      query = `
+        SELECT 
+          ${groupByColumn} as tingkat,
+          SUM(${areaColumn}) as luas_total
+        FROM ${tableName}
+        WHERE ST_Intersects(
+          ST_SetSRID(geom, 4326),
+          ST_Buffer(
+            ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
+            1000
+          )::geometry
+        )
+        GROUP BY ${groupByColumn}
+        ORDER BY 
+          CASE ${groupByColumn}
+            WHEN 'Rendah' THEN 1
+            WHEN 'Sedang' THEN 2
+            WHEN 'Tinggi' THEN 3
+            ELSE 4
+          END
+      `;
+      
+    } else if (category === 'Tanah Longsor dan Erosi') {
+      tableName = 'rawan_erosi';
+      
+      query = `
+        SELECT 
+          kls_a,
+          SUM(n_a) as luas_total
+        FROM ${tableName}
+        WHERE ST_Intersects(
+          ST_SetSRID(geom, 4326),
+          ST_Buffer(
+            ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
+            1000
+          )::geometry
+        )
+        GROUP BY kls_a
+        ORDER BY kls_a
+      `;
+      
+    } else {
+      return res.status(400).json({ 
+        error: 'Invalid category' 
+      });
+    }
+    
+    const result = await pool.query(query, [parseFloat(longitude), parseFloat(latitude)]);
+    
+    // Jika erosi, klasifikasikan berdasarkan kls_a
+    let processedData = result.rows;
+    
+    if (category === 'Tanah Longsor dan Erosi') {
+      processedData = result.rows.map(row => {
+        const kls_a = parseFloat(row.kls_a);
+        let tingkat;
+        
+        if (kls_a <= 15) {
+          tingkat = 'Sangat Rendah';
+        } else if (kls_a <= 60) {
+          tingkat = 'Rendah';
+        } else if (kls_a <= 180) {
+          tingkat = 'Sedang';
+        } else if (kls_a <= 480) {
+          tingkat = 'Tinggi';
+        } else {
+          tingkat = 'Sangat Tinggi';
+        }
+        
+        return {
+          tingkat: tingkat,
+          luas_total: row.luas_total
+        };
+      });
+      
+      // Akumulasi untuk tingkat yang sama
+      const grouped = {};
+      processedData.forEach(row => {
+        if (grouped[row.tingkat]) {
+          grouped[row.tingkat] += parseFloat(row.luas_total);
+        } else {
+          grouped[row.tingkat] = parseFloat(row.luas_total);
+        }
+      });
+      
+      // Sort berdasarkan tingkat kerawanan
+      const tingkatOrder = ['Sangat Rendah', 'Rendah', 'Sedang', 'Tinggi', 'Sangat Tinggi'];
+      processedData = Object.keys(grouped)
+        .sort((a, b) => tingkatOrder.indexOf(a) - tingkatOrder.indexOf(b))
+        .map(tingkat => ({
+          tingkat: tingkat,
+          luas_total: grouped[tingkat]
+        }));
+    }
+    
+    console.log(`Found ${processedData.length} kerawanan records for ${category}`);
+    
+    res.json({
+      success: true,
+      category: category,
+      data: processedData
+    });
+    
+  } catch (error) {
+    console.error('Error fetching kerawanan data:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch kerawanan data',
+      details: error.message 
+    });
+  }
+});
+
+// Endpoint untuk fetch curah hujan dari Open-Meteo API
+app.get('/api/weather/rainfall', async (req, res) => {
+  try {
+    const { latitude, longitude, date } = req.query;
+    
+    if (!latitude || !longitude || !date) {
+      return res.status(400).json({ 
+        error: 'Missing required parameters: latitude, longitude, date' 
+      });
+    }
+
+    console.log('Fetching rainfall data for:', { latitude, longitude, date });
+
+    // Open-Meteo API - Free, no API key required
+    // Get rainfall data for specific date
+    const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${latitude}&longitude=${longitude}&start_date=${date}&end_date=${date}&daily=precipitation_sum&timezone=Asia/Jakarta`;
+    
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      throw new Error(`Open-Meteo API error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    console.log('Open-Meteo response:', data);
+    
+    // Extract rainfall data
+    const rainfall = data.daily?.precipitation_sum?.[0] || 0;
+    
+    res.json({
+      success: true,
+      rainfall: rainfall, // in mm
+      date: date,
+      location: {
+        latitude: parseFloat(latitude),
+        longitude: parseFloat(longitude)
+      },
+      source: 'Open-Meteo Archive API'
+    });
+    
+  } catch (error) {
+    console.error('Error fetching rainfall data:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch rainfall data',
+      details: error.message 
+    });
+  }
+});
+
 app.post('/api/kejadian/check-years-availability', async (req, res) => {
   try {
     const { bounds, dasFilter } = req.body;
     
     let query = `
-      SELECT DISTINCT EXTRACT(YEAR FROM date)::integer as year
+      SELECT DISTINCT 
+        category,
+        EXTRACT(YEAR FROM date)::integer as year,
+        COUNT(*) as count
       FROM kejadian
       WHERE 1=1
     `;
@@ -9190,31 +9511,33 @@ app.post('/api/kejadian/check-years-availability', async (req, res) => {
     // Filter by DAS if provided
     if (dasFilter && dasFilter.length > 0) {
       const dasPlaceholders = dasFilter.map((_, i) => `$${paramIndex + i}`).join(',');
-      // Gunakan INITCAP() untuk Title Case comparison
       query += ` AND INITCAP(das) IN (${dasPlaceholders})`;
-      // Normalisasi ke Title Case
       params.push(...dasFilter.map(d => d.charAt(0).toUpperCase() + d.slice(1).toLowerCase()));
       paramIndex += dasFilter.length;
     }
     
-    query += ' ORDER BY year DESC';
+    query += ' GROUP BY category, EXTRACT(YEAR FROM date) ORDER BY year DESC, category';
     
     console.log('Check kejadian years availability query:', query);
     console.log('With params:', params);
     
     const result = await pool.query(query, params);
-    const availableYears = result.rows.map(row => row.year);
+    const availableKejadian = result.rows.map(row => ({
+      category: row.category,
+      year: row.year,
+      count: parseInt(row.count)
+    }));
     
-    console.log('Available kejadian years in bounds:', availableYears);
+    console.log('Available kejadian in bounds:', availableKejadian);
     
     res.json({ 
-      availableYears: availableYears
+      availableKejadian: availableKejadian
     });
   } catch (error) {
     console.error('Error checking kejadian years availability:', error);
     res.status(500).json({ 
       error: error.message,
-      availableYears: []
+      availableKejadian: []
     });
   }
 });
@@ -9451,7 +9774,7 @@ app.get('/api/kejadian/by-year/:year', async (req, res) => {
   
   try {
     const { year } = req.params;
-    const { bounds, dasFilter } = req.query;
+    const { bounds, dasFilter, category } = req.query;
     
     console.log('Fetching kejadian for year:', year);
     console.log('Bounds:', bounds);
@@ -9462,6 +9785,14 @@ app.get('/api/kejadian/by-year/:year', async (req, res) => {
     const params = [year];
     let paramIndex = 2;
     
+    // Add category filter if provided
+    if (category) {
+      whereClause += ` AND category = $${paramIndex}`;
+      params.push(category);
+      paramIndex++;
+      console.log('Applied category filter:', category);
+    }
+
     // Add bounds filter if provided
     if (bounds) {
       const [south, west, north, east] = bounds.split(',').map(Number);
@@ -9542,7 +9873,7 @@ app.get('/api/kejadian/by-year/:year', async (req, res) => {
       features: features
     };
     
-    console.log(`Returning ${features.length} kejadian features for year ${year}`);
+    console.log(`Returning ${features.length} kejadian features for year ${year}${category ? ' category ' + category : ''}`);
     res.json(geojson);
     
   } catch (error) {
@@ -9806,18 +10137,54 @@ app.get('/api/layers', async (req, res) => {
       ORDER BY created_at DESC
     `);
     
+    // Get kejadian grouped by category and year (dari tabel kejadian - auto)
+    const kejadianResult = await pool.query(`
+      SELECT 
+        category,
+        EXTRACT(YEAR FROM date) as year,
+        COUNT(*) as count
+      FROM kejadian
+      GROUP BY category, EXTRACT(YEAR FROM date)
+      ORDER BY year DESC, category
+    `);
+    
     // Group by section
     const grouped = {
       kerawanan: [],
       mitigasiAdaptasi: [],
-      lainnya: []
+      lainnya: [],
+      kejadian: []
     };
     
     result.rows.forEach(row => {
-      grouped[row.section].push({
-        id: row.id.toString(),
-        name: row.table_name,
-        createdAt: row.created_at
+      if (row.section === 'kejadian') {
+        // Layer manual upload (dari layer_metadata)
+        grouped.kejadian.push({
+          id: row.id.toString(),
+          name: row.table_name,
+          createdAt: row.created_at,
+          isManual: true, // Flag untuk layer manual upload
+          isShapefile: true
+        });
+      } else {
+        grouped[row.section].push({
+          id: row.id.toString(),
+          name: row.table_name,
+          createdAt: row.created_at
+        });
+      }
+    });
+    
+    // Add kejadian layers otomatis dari tabel kejadian (auto-generated points)
+    kejadianResult.rows.forEach(row => {
+      grouped.kejadian.push({
+        id: `kejadian_${row.category.replace(/\s+/g, '_')}_${row.year}`,
+        name: `${row.category} ${row.year}`,
+        category: row.category,
+        year: parseInt(row.year),
+        count: parseInt(row.count),
+        isManual: false, // Flag untuk layer otomatis
+        isAutoGenerated: true
       });
     });
     
@@ -11344,6 +11711,7 @@ app.post('/api/das/bounds', async (req, res) => {
   }
 });
 
+// Endpoint untuk fetch tutupan lahan data dengan luas_ha
 app.get('/api/tutupan-lahan/data', async (req, res) => {
   try {
     const { bounds, dasFilter } = req.query;
@@ -11352,7 +11720,7 @@ app.get('/api/tutupan-lahan/data', async (req, res) => {
       SELECT DISTINCT 
         tl.pl2024_id,
         mpl.deskripsi_domain,
-        COUNT(*) as count
+        SUM(tl.luas_ha) as luas_total
       FROM tutupan_lahan tl
       LEFT JOIN mapping_penutupan_lahan mpl ON tl.pl2024_id::text = mpl.kode_domain
     `;
@@ -11413,6 +11781,75 @@ app.get('/api/tutupan-lahan/data', async (req, res) => {
   }
 });
 
+// Endpoint untuk fetch geologi data dengan bounds
+app.get('/api/geologi/data', async (req, res) => {
+  try {
+    const { bounds, dasFilter } = req.query;
+    
+    let query = `
+      SELECT DISTINCT 
+        g.namobj,
+        g.umurobj,
+        SUM(g.keliling_m) as keliling_total
+      FROM geologi g
+    `;
+    
+    const conditions = [];
+    const params = [];
+    let paramIndex = 1;
+    
+    // Filter by bounds if provided
+    if (bounds) {
+      const [minLat, minLng, maxLat, maxLng] = bounds.split(',').map(Number);
+      conditions.push(`ST_Intersects(
+        g.geom,
+        ST_MakeEnvelope($${paramIndex}, $${paramIndex+1}, $${paramIndex+2}, $${paramIndex+3}, 4326)
+      )`);
+      params.push(minLng, minLat, maxLng, maxLat);
+      paramIndex += 4;
+    }
+    
+    // Filter by DAS if provided
+    if (dasFilter) {
+      try {
+        const dasArray = JSON.parse(dasFilter);
+        if (dasArray && dasArray.length > 0) {
+          const dasPlaceholders = dasArray.map((_, i) => `$${paramIndex + i}`).join(',');
+          conditions.push(`g.nama_das IN (${dasPlaceholders})`);
+          params.push(...dasArray);
+          paramIndex += dasArray.length;
+        }
+      } catch (e) {
+        console.error('Error parsing dasFilter:', e);
+      }
+    }
+    
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+    
+    query += `
+      GROUP BY g.namobj, g.umurobj
+      ORDER BY g.namobj, g.umurobj
+    `;
+    
+    console.log('Executing geologi query with params:', params);
+    const result = await pool.query(query, params);
+    console.log('Geologi data fetched:', result.rows.length, 'rows');
+    
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching geologi data:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
 // 5. Test Route - Check server status
 app.get('/api/health', (req, res) => {
   res.json({
@@ -11444,7 +11881,6 @@ const server = app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
 
-// Configure server for large file uploads (3GB max)
 server.timeout = 7200000; // 2 hours
 server.keepAliveTimeout = 7200000; // 2 hours
 server.headersTimeout = 7210000; // Slightly higher than keepAliveTimeout

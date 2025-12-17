@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MapPin, Heart } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { API_URL } from './api';
+import {API_URL} from './api';
 
 export default function DetailKejadianBencana() {
   const location = useLocation();
@@ -11,6 +11,9 @@ export default function DetailKejadianBencana() {
   const [activeTab, setActiveTab] = useState('overview');
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(null);
+  const [tutupanLahanData, setTutupanLahanData] = useState([]);
+  const [dasGeometry, setDasGeometry] = useState(null);
+  const [kerawananData, setKerawananData] = useState([]);
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   
@@ -48,83 +51,250 @@ export default function DetailKejadianBencana() {
     'https://images.unsplash.com/photo-1547036967-23d11aacaee0?w=400',
   ];
 
+  // Function untuk fetch data kerawanan berdasarkan kategori
+  const fetchKerawananData = async () => {
+    if (!incidentData?.coordinates || !incidentData?.category) return;
+    
+    try {
+      const [lat, lon] = incidentData.coordinates;
+      const response = await fetch(
+        `${API_URL}/api/kerawanan/by-coordinates?longitude=${lon}&latitude=${lat}&category=${encodeURIComponent(incidentData.category)}`
+      );
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch kerawanan data');
+      }
+      
+      const data = await response.json();
+      
+      if (data.success && data.data) {
+        setKerawananData(data.data);
+        console.log('Kerawanan data:', data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching kerawanan data:', error);
+      setKerawananData([]);
+    }
+  };
+
+  // Function untuk fetch tutupan lahan data
+  const fetchTutupanLahanData = async () => {
+    if (!incidentData?.coordinates) return;
+    
+    try {
+      const [lat, lon] = incidentData.coordinates;
+      const response = await fetch(
+        `${API_URL}/api/tutupan-lahan/by-coordinates?longitude=${lon}&latitude=${lat}`
+      );
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch tutupan lahan data');
+      }
+      
+      const data = await response.json();
+      
+      if (data.success && data.data) {
+        setTutupanLahanData(data.data);
+        console.log('Tutupan lahan data:', data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching tutupan lahan:', error);
+      setTutupanLahanData([]);
+    }
+  };
+
+  // Function untuk fetch DAS geometry
+const fetchDasGeometry = async () => {
+  if (!incidentData?.coordinates) return;
+  
+  try {
+    const [lat, lon] = incidentData.coordinates;
+    const response = await fetch(
+      `${API_URL}/api/das/geometry-by-coordinates?longitude=${lon}&latitude=${lat}`
+    );
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch DAS geometry');
+    }
+    
+    const data = await response.json();
+    
+    if (data.success && data.geom) {
+      setDasGeometry(data.geom); // data.geom sudah dalam format GeoJSON object
+      console.log('DAS geometry loaded:', data.dasName);
+    }
+  } catch (error) {
+    console.error('Error fetching DAS geometry:', error);
+    setDasGeometry(null);
+  }
+};
+
+  // Helper function untuk menentukan warna dan label curah hujan
+  const getRainfallColorAndLabel = (rainfall) => {
+    if (rainfall === 0) {
+      return { color: '#9CA3AF', label: 'Berawan', bg: '#F3F4F6' };
+    } else if (rainfall > 0 && rainfall <= 20) {
+      return { color: '#10B981', label: 'Hujan ringan', bg: '#D1FAE5' };
+    } else if (rainfall > 20 && rainfall <= 50) {
+      return { color: '#F59E0B', label: 'Hujan sedang', bg: '#FEF3C7' };
+    } else if (rainfall > 50 && rainfall <= 100) {
+      return { color: '#F97316', label: 'Hujan lebat', bg: '#FFEDD5' };
+    } else if (rainfall > 100 && rainfall <= 150) {
+      return { color: '#EF4444', label: 'Hujan sangat lebat', bg: '#FEE2E2' };
+    } else {
+      return { color: '#A855F7', label: 'Hujan ekstrem', bg: '#F3E8FF' };
+    }
+  };
+
+  // Generate random colors for tutupan lahan bars
+  const getBarColor = (index) => {
+    const colors = ['#EC4899', '#3B82F6', '#F59E0B', '#14B8A6', '#A855F7', '#EF4444', '#10B981'];
+    return colors[index % colors.length];
+  };
+
   const scrollToSection = (ref, tabName) => {
     setActiveTab(tabName);
     ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  // Initialize Leaflet map
-  useEffect(() => {
-    if (!incidentData) return;
+  // Helper function untuk mendapatkan judul tabel berdasarkan kategori
+  const getKerawananTableTitle = () => {
+    if (incidentData?.category === 'Banjir') {
+      return 'Data Rawan Limpasan';
+    } else if (incidentData?.category === 'Kebakaran Hutan dan Kekeringan') {
+      return 'Data Rawan Karhutla';
+    } else if (incidentData?.category === 'Tanah Longsor dan Erosi') {
+      return 'Data Rawan Erosi';
+    }
+    return 'Data Lahan Kritis';
+  };
 
-    const leafletCSS = document.createElement('link');
-    leafletCSS.rel = 'stylesheet';
-    leafletCSS.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-    document.head.appendChild(leafletCSS);
+  // Helper function untuk mendapatkan header kolom
+  const getKerawananTableHeaders = () => {
+    if (incidentData?.category === 'Banjir') {
+      return ['Tingkat Limpasan', 'Luas Limpasan (Ha)'];
+    } else if (incidentData?.category === 'Kebakaran Hutan dan Kekeringan') {
+      return ['Tingkat Kerawanan', 'Luas Wilayah (Ha)'];
+    } else if (incidentData?.category === 'Tanah Longsor dan Erosi') {
+      return ['Tingkat Kerawanan', 'Luas Wilayah (Ton/Ha)'];
+    }
+    return ['Kelas', 'Luas'];
+  };
 
-    const leafletScript = document.createElement('script');
-    leafletScript.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-    leafletScript.onload = () => {
-      if (mapRef.current && window.L && !mapInstanceRef.current) {
-        const map = window.L.map(mapRef.current).setView(incidentData.coordinates, 13);
+  // Initialize Leaflet map and fetch data
+useEffect(() => {
+  if (!incidentData) return;
+
+  // Fetch tutupan lahan and DAS data HANYA SEKALI
+  fetchTutupanLahanData();
+  fetchDasGeometry();
+  fetchKerawananData();
+
+  const leafletCSS = document.createElement('link');
+  leafletCSS.rel = 'stylesheet';
+  leafletCSS.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  document.head.appendChild(leafletCSS);
+
+  const leafletScript = document.createElement('script');
+  leafletScript.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  leafletScript.onload = () => {
+    if (mapRef.current && window.L && !mapInstanceRef.current) {
+      const map = window.L.map(mapRef.current).setView(incidentData.coordinates, 13);
+      
+      window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+      
+      // Create custom icon based on incident type
+      const createCustomIcon = (type) => {
+        let iconSVG = '';
         
-        window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; OpenStreetMap contributors'
-        }).addTo(map);
+        if (type === 'banjir') {
+          iconSVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>
+          </svg>`;
+        } else if (type === 'longsor') {
+          iconSVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
+            <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
+          </svg>`;
+        } else if (type === 'kebakaran') {
+          iconSVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
+            <path d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z"/>
+          </svg>`;
+        }
         
-        // Create custom icon based on incident type
-        const createCustomIcon = (type) => {
-          let iconSVG = '';
-          
-          if (type === 'banjir') {
-            iconSVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>
-            </svg>`;
-          } else if (type === 'longsor') {
-            iconSVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
-              <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
-            </svg>`;
-          } else if (type === 'kebakaran') {
-            iconSVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
-              <path d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z"/>
-            </svg>`;
-          }
-          
-          return window.L.divIcon({
-            className: 'custom-detail-marker',
-            html: `
-              <div class="marker-container" style="position: relative; width: 44px; height: 44px;">
-                <svg class="marker-circle" width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
-                  <circle class="marker-bg" cx="22" cy="22" r="20" fill="#3b82f6" stroke="white" stroke-width="3" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));"/>
-                </svg>
-                <div style="position: absolute; top: 12px; left: 12px; pointer-events: none;">
-                  ${iconSVG}
-                </div>
+        return window.L.divIcon({
+          className: 'custom-detail-marker',
+          html: `
+            <div class="marker-container" style="position: relative; width: 44px; height: 44px;">
+              <svg class="marker-circle" width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
+                <circle class="marker-bg" cx="22" cy="22" r="20" fill="#3b82f6" stroke="white" stroke-width="3" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));"/>
+              </svg>
+              <div style="position: absolute; top: 12px; left: 12px; pointer-events: none;">
+                ${iconSVG}
               </div>
-            `,
-            iconSize: [44, 44],
-            iconAnchor: [22, 22]
-          });
-        };
+            </div>
+          `,
+          iconSize: [44, 44],
+          iconAnchor: [22, 22]
+        });
+      };
 
-        window.L.marker(incidentData.coordinates, {
-          icon: createCustomIcon(incidentData.type)
-        }).addTo(map);
-        
-        mapInstanceRef.current = map;
-      }
-    };
-    document.head.appendChild(leafletScript);
+      window.L.marker(incidentData.coordinates, {
+        icon: createCustomIcon(incidentData.type)
+      }).addTo(map);
+      
+      mapInstanceRef.current = map;
+    }
+  };
+  document.head.appendChild(leafletScript);
 
-    return () => {
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove();
-        mapInstanceRef.current = null;
+  return () => {
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.remove();
+      mapInstanceRef.current = null;
+    }
+    leafletCSS.remove();
+    leafletScript.remove();
+  };
+}, [incidentData]); // HAPUS dasGeometry dari dependency!
+
+// Separate useEffect untuk render DAS layer ketika dasGeometry tersedia
+useEffect(() => {
+  if (dasGeometry && mapInstanceRef.current && window.L) {
+    console.log('Adding DAS layer to map');
+    
+    // Hapus layer DAS lama jika ada
+    if (mapInstanceRef.current._dasLayer) {
+      mapInstanceRef.current.removeLayer(mapInstanceRef.current._dasLayer);
+    }
+    
+    // Tambah layer DAS baru
+    const dasLayer = window.L.geoJSON(dasGeometry, {
+      style: {
+        color: '#3b82f6',
+        weight: 2,
+        opacity: 0.8,
+        fillColor: '#dbeafe',
+        fillOpacity: 0.2
       }
-      leafletCSS.remove();
-      leafletScript.remove();
-    };
-  }, [incidentData]);
+    }).addTo(mapInstanceRef.current);
+    
+    // Simpan reference untuk cleanup nanti
+    mapInstanceRef.current._dasLayer = dasLayer;
+  }
+}, [dasGeometry]);
+
+// Tambahkan di awal component untuk debug
+useEffect(() => {
+  if (incidentData) {
+    console.log('=== INCIDENT DATA DEBUG ===');
+    console.log('Full incidentData:', incidentData);
+    console.log('curah_hujan value:', incidentData.curah_hujan);
+    console.log('curah_hujan type:', typeof incidentData.curah_hujan);
+    console.log('Has curah_hujan property:', 'curah_hujan' in incidentData);
+  }
+}, [incidentData]);
 
   // If no incident data, show error
   if (!incidentData) {
@@ -184,13 +354,13 @@ export default function DetailKejadianBencana() {
                   <span>{incidentData.location}</span>
                 </div>
               </div>
-              <button
+              {/* <button
                 onClick={() => setIsBookmarked(!isBookmarked)}
                 className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors"
               >
                 <Heart className={`w-4 h-4 ${isBookmarked ? 'fill-red-500 text-red-500' : 'text-gray-600'}`} />
                 <span className="text-sm text-gray-700">Bookmark this listing</span>
-              </button>
+              </button> */}
             </div>
 
             <div className="relative rounded-lg overflow-hidden mb-6">
@@ -319,78 +489,112 @@ export default function DetailKejadianBencana() {
                   
                   <div className="mb-6">
                     <h4 className="text-sm font-medium text-gray-700 mb-3">Data Curah Hujan</h4>
-                    <div className="relative h-40">
-                      <svg viewBox="0 0 200 80" className="w-full h-full">
-                        <defs>
-                          <linearGradient id="gradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                            <stop offset="0%" stopColor="#93c5fd" stopOpacity="0.4" />
-                            <stop offset="100%" stopColor="#93c5fd" stopOpacity="0.1" />
-                          </linearGradient>
-                        </defs>
-                        <polyline
-                          points="0,60 20,50 40,30 60,20 80,25 100,40 120,55 140,50 160,40 180,45 200,50"
-                          fill="url(#gradient)"
-                          stroke="#3b82f6"
-                          strokeWidth="2"
-                        />
-                        <line x1="0" y1="40" x2="200" y2="40" stroke="#ef4444" strokeWidth="1" strokeDasharray="4" />
-                      </svg>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-2">Data curah hujan (mm/bulan)</p>
+                    {incidentData?.curah_hujan !== undefined && incidentData?.curah_hujan !== null ? (
+                      <div>
+                        <div 
+                          className="rounded-lg p-6 flex flex-col items-center justify-center"
+                          style={{ 
+                            backgroundColor: getRainfallColorAndLabel(incidentData.curah_hujan).bg 
+                          }}
+                        >
+                          <div 
+                            className="text-3xl font-black mb-2"
+                            style={{ 
+                              color: getRainfallColorAndLabel(incidentData.curah_hujan).color 
+                            }}
+                          >
+                            {incidentData.curah_hujan} mm/hari
+                          </div>
+                          <div 
+                            className="text-sm font-semibold uppercase tracking-wide"
+                            style={{ 
+                              color: getRainfallColorAndLabel(incidentData.curah_hujan).color 
+                            }}
+                          >
+                            {getRainfallColorAndLabel(incidentData.curah_hujan).label}
+                          </div>
+                        </div>
+                        
+                      </div>
+                    ) : (
+                      <div className="text-center text-gray-400 py-8">
+                        <p className="text-sm">Data curah hujan tidak tersedia</p>
+                      </div>
+                    )}
                   </div>
 
                   <div className="mb-6">
                     <h4 className="text-sm font-medium text-gray-700 mb-3">Data Tutupan Lahan</h4>
-                    <div className="flex gap-2 h-32 items-end">
-                      <div className="flex-1 bg-pink-400 rounded-t" style={{height: '85%'}}></div>
-                      <div className="flex-1 bg-blue-400 rounded-t" style={{height: '95%'}}></div>
-                      <div className="flex-1 bg-yellow-400 rounded-t" style={{height: '60%'}}></div>
-                      <div className="flex-1 bg-teal-400 rounded-t" style={{height: '70%'}}></div>
-                      <div className="flex-1 bg-purple-400 rounded-t" style={{height: '40%'}}></div>
-                    </div>
+                    {tutupanLahanData.length > 0 ? (
+                      <div>
+                        <div className="flex gap-2 h-32 items-end">
+                          {tutupanLahanData.slice(0, 7).map((item, index) => {
+                            const maxCount = Math.max(...tutupanLahanData.map(d => d.count));
+                            const height = (item.count / maxCount) * 100;
+                            
+                            return (
+                              <div 
+                                key={index}
+                                className="flex-1 rounded-t relative group cursor-pointer"
+                                style={{
+                                  height: `${height}%`,
+                                  backgroundColor: getBarColor(index),
+                                  minHeight: '20%'
+                                }}
+                                title={`${item.deskripsi_domain}: ${item.count}`}
+                              >
+                                {/* Tooltip on hover */}
+                                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
+                                  <div className="font-semibold">{item.deskripsi_domain}</div>
+                                  <div className="text-xs">Jumlah: {item.count}</div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-2 text-center">
+                          Hover untuk melihat detail tutupan lahan
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="text-center text-gray-400 py-8">
+                        <p className="text-sm">Tidak ada data tutupan lahan</p>
+                      </div>
+                    )}
                   </div>
 
                   <div>
-                    <h4 className="text-sm font-medium text-gray-700 mb-3">Data Lahan Kritis</h4>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="border-b border-gray-200">
-                            <th className="text-left py-2 px-2 font-medium text-gray-600">Kelas</th>
-                            <th className="text-left py-2 px-2 font-medium text-gray-600">Luas (ha)</th>
-                            <th className="text-left py-2 px-2 font-medium text-gray-600">%</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr className="border-b border-gray-100">
-                            <td className="py-2 px-2 text-gray-700">SR</td>
-                            <td className="py-2 px-2 text-gray-700">1</td>
-                            <td className="py-2 px-2 text-gray-700">5</td>
-                          </tr>
-                          <tr className="border-b border-gray-100">
-                            <td className="py-2 px-2 text-gray-700">K</td>
-                            <td className="py-2 px-2 text-gray-700">15</td>
-                            <td className="py-2 px-2 text-gray-700">20</td>
-                          </tr>
-                          <tr className="border-b border-gray-100">
-                            <td className="py-2 px-2 text-gray-700">AK</td>
-                            <td className="py-2 px-2 text-gray-700">8</td>
-                            <td className="py-2 px-2 text-gray-700">11.4</td>
-                          </tr>
-                          <tr className="border-b border-gray-100">
-                            <td className="py-2 px-2 text-gray-700">P</td>
-                            <td className="py-2 px-2 text-gray-700">No</td>
-                            <td className="py-2 px-2 text-gray-700">8</td>
-                          </tr>
-                          <tr>
-                            <td className="py-2 px-2 text-gray-700">TP</td>
-                            <td className="py-2 px-2 text-gray-700">23</td>
-                            <td className="py-2 px-2 text-gray-700">31</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+  <h4 className="text-sm font-medium text-gray-700 mb-3">{getKerawananTableTitle()}</h4>
+  {kerawananData.length > 0 ? (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-gray-200">
+            {getKerawananTableHeaders().map((header, idx) => (
+              <th key={idx} className="text-left py-2 px-2 font-medium text-gray-600">
+                {header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {kerawananData.map((item, idx) => (
+            <tr key={idx} className="border-b border-gray-100">
+              <td className="py-2 px-2 text-gray-700">{item.tingkat}</td>
+              <td className="py-2 px-2 text-gray-700">
+                {parseFloat(item.luas_total).toFixed(2)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  ) : (
+    <div className="text-center text-gray-400 py-4">
+      <p className="text-xs">Tidak ada data kerawanan</p>
+    </div>
+  )}
+</div>
                 </div>
               </div>
             </div>

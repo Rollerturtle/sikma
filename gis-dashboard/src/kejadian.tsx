@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {API_URL} from './api';
+import {API_URL} from './api'; 
 
 const Kebencanaan = () => {
   const mapRef = useRef(null);
@@ -26,6 +26,7 @@ const Kebencanaan = () => {
   const [showItemsPerPageDropdown, setShowItemsPerPageDropdown] = useState(false);
   const [incidents, setIncidents] = useState([]);
   const [isLoadingIncidents, setIsLoadingIncidents] = useState(true);
+  const [selectedDisasterTypes, setSelectedDisasterTypes] = useState<string[]>([]);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -43,6 +44,8 @@ const Kebencanaan = () => {
   das: '',
   longitude: '',
   latitude: '',
+  curahHujan: null,
+  isLoadingRainfall: false,
   featured: true
 });
 
@@ -51,38 +54,53 @@ const [dasOptions, setDasOptions] = useState<string[]>([]);
 const [isLoadingDas, setIsLoadingDas] = useState(false);
 
   const reverseGeocode = async (lat, lon) => {
-  if (!lat || !lon) return;
-  
-  try {
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1&accept-language=id`,
-      {
-        headers: {
-          'User-Agent': 'KejadianBencanaApp/1.0'
+      if (!lat || !lon) return;
+      
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1&accept-language=id`,
+          {
+            headers: {
+              'User-Agent': 'KejadianBencanaApp/1.0'
+            }
+          }
+        );
+        const data = await response.json();
+        
+        if (data.address) {
+          const village = data.address.village || data.address.suburb || '';
+          const district = data.address.county || '';
+          const city = data.address.city || data.address.town || data.address.city_district || '';
+          const province = data.address.state || '';
+          
+          const lokasi = [village, district, city, province]
+            .filter(Boolean)
+            .join(', ');
+          
+          setFormData(prev => ({ ...prev, lokasi }));
+          
+          // Fetch DAS berdasarkan koordinat
+          await fetchDasByCoordinates(lon, lat);
+          
+          // TAMBAH: Fetch rainfall data jika sudah ada tanggal
+          if (formData.incidentDate) {
+            await fetchRainfallData(lat, lon, formData.incidentDate);
+          }
         }
+      } catch (error) {
+        console.error('Reverse geocoding error:', error);
       }
+    };
+
+    useEffect(() => {
+  if (formData.incidentDate && formData.latitude && formData.longitude) {
+    fetchRainfallData(
+      parseFloat(formData.latitude), 
+      parseFloat(formData.longitude), 
+      formData.incidentDate
     );
-    const data = await response.json();
-    
-    if (data.address) {
-      const village = data.address.village || data.address.suburb || '';
-      const district = data.address.county || '';
-      const city = data.address.city || data.address.town || data.address.city_district || '';
-      const province = data.address.state || '';
-      
-      const lokasi = [village, district, city, province]
-        .filter(Boolean)
-        .join(', ');
-      
-      setFormData(prev => ({ ...prev, lokasi }));
-      
-      // Fetch DAS berdasarkan koordinat (bukan lokasi)
-      await fetchDasByCoordinates(lon, lat);
-    }
-  } catch (error) {
-    console.error('Reverse geocoding error:', error);
   }
-};
+}, [formData.incidentDate]);
 
 const fetchDasByCoordinates = async (longitude: number, latitude: number) => {
   if (!longitude || !latitude) {
@@ -203,6 +221,7 @@ const fetchDasByCoordinates = async (longitude: number, latitude: number) => {
       formDataToSend.append('das', formData.das || '');
       formDataToSend.append('longitude', formData.longitude);
       formDataToSend.append('latitude', formData.latitude);
+      formDataToSend.append('curahHujan', formData.curahHujan !== null ? formData.curahHujan.toString() : '');
       formDataToSend.append('featured', formData.featured);
       formDataToSend.append('description', formData.description || '');
       
@@ -242,6 +261,8 @@ const fetchDasByCoordinates = async (longitude: number, latitude: number) => {
           das: '',
           longitude: '',
           latitude: '',
+          curahHujan: null,
+          isLoadingRainfall: false,
           featured: true
         });
         setDasOptions([]);
@@ -259,6 +280,53 @@ const fetchDasByCoordinates = async (longitude: number, latitude: number) => {
   useEffect(() => {
     fetchIncidents();
   }, []);
+
+  const fetchRainfallData = async (latitude: number, longitude: number, date: string) => {
+    if (!latitude || !longitude || !date) {
+      console.log('Missing data for rainfall fetch:', { latitude, longitude, date });
+      return;
+    }
+    
+    try {
+      setFormData(prev => ({ ...prev, isLoadingRainfall: true }));
+      
+      console.log('Fetching rainfall data for:', { latitude, longitude, date });
+      
+      const response = await fetch(
+        `${API_URL}/api/weather/rainfall?latitude=${latitude}&longitude=${longitude}&date=${date}`
+      );
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch rainfall: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      console.log('Rainfall data received:', data);
+      
+      if (data.success) {
+        setFormData(prev => ({ 
+          ...prev, 
+          curahHujan: data.rainfall,
+          isLoadingRainfall: false
+        }));
+        
+        // Show notification
+        if (data.rainfall > 0) {
+          console.log(`✅ Curah hujan otomatis terisi: ${data.rainfall} mm`);
+        } else {
+          console.log(`ℹ️ Tidak ada data curah hujan untuk tanggal ${date}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching rainfall:', error);
+      setFormData(prev => ({ 
+        ...prev, 
+        curahHujan: null,
+        isLoadingRainfall: false
+      }));
+    }
+  };
 
   const fetchIncidents = async () => {
     try {
@@ -297,7 +365,8 @@ const fetchDasByCoordinates = async (longitude: number, latitude: number) => {
             coordinates: [item.latitude, item.longitude],
             featured: item.featured,
             description: item.description,
-            images_paths: imagesPaths // Array yang sudah di-parse
+            images_paths: imagesPaths, // Array yang sudah di-parse
+            curah_hujan: item.curah_hujan
           };
         });
         
@@ -921,13 +990,17 @@ coordinates: [-6.2900, 106.7200],
       const matchesCategory = selectedCategory === 'Kategori' || 
         incident.type === categoryToType[selectedCategory];
       
+      // TAMBAH filter untuk jenis bencana (multiple selection)
+      const matchesDisasterTypes = selectedDisasterTypes.length === 0 || 
+        selectedDisasterTypes.includes(incident.type);
+      
       let matchesBounds = true;
       if (mapBounds && window.L) {
         const [lat, lng] = incident.coordinates;
         matchesBounds = mapBounds.contains([lat, lng]);
       }
       
-      return matchesSearch && matchesLocation && matchesCategory && matchesBounds;
+      return matchesSearch && matchesLocation && matchesCategory && matchesDisasterTypes && matchesBounds;
     });
   };
 
@@ -1527,7 +1600,7 @@ if (filteredForMarkers.length > 0 && !mapBounds) {
               )}
             </div>
 
-            {/* Sort Dropdown */}
+            {/* Sort Dropdown
             <div className="relative">
               <button
                 onClick={() => {
@@ -1567,9 +1640,9 @@ if (filteredForMarkers.length > 0 && !mapBounds) {
                   </div>
                 </>
               )}
-            </div>
+            </div> */}
 
-            {/* Distance Radius Dropdown */}
+            {/* Distance Radius Dropdown
             <div className="relative">
               <button
                 onClick={() => {
@@ -1630,16 +1703,97 @@ if (filteredForMarkers.length > 0 && !mapBounds) {
                   </div>
                 </>
               )}
-            </div>
+            </div> */}
 
-            {/* More Filters */}
-            <button
-              onClick={() => setShowMoreFilters(!showMoreFilters)}
-              className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 flex items-center gap-2"
-            >
-              More Filters
-              <span className="text-gray-400">▼</span>
-            </button>
+            {/* Jenis Bencana Filter */}
+            <div className="relative">
+              <button
+                onClick={() => setShowMoreFilters(!showMoreFilters)}
+                className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 flex items-center gap-2"
+              >
+                Jenis Bencana
+                {selectedDisasterTypes.length > 0 && (
+                  <span className="ml-1 px-2 py-0.5 bg-red-500 text-white text-xs rounded-full">
+                    {selectedDisasterTypes.length}
+                  </span>
+                )}
+                <span className="text-gray-400">▼</span>
+              </button>
+              {showMoreFilters && (
+                <>
+                  <div 
+                    className="fixed inset-0 z-40" 
+                    onClick={() => setShowMoreFilters(false)}
+                  />
+                  <div className="absolute top-full mt-2 right-0 bg-white rounded-lg shadow-xl border border-gray-200 w-64 z-50">
+                    <div className="p-3">
+                      <div className="text-sm font-semibold text-gray-700 mb-3">Pilih Jenis Bencana</div>
+                      
+                      {/* Banjir */}
+                      <label className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedDisasterTypes.includes('banjir')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedDisasterTypes([...selectedDisasterTypes, 'banjir']);
+                            } else {
+                              setSelectedDisasterTypes(selectedDisasterTypes.filter(t => t !== 'banjir'));
+                            }
+                          }}
+                          className="w-4 h-4 text-red-500 rounded focus:ring-red-500"
+                        />
+                        <span className="text-sm text-gray-700">Banjir</span>
+                      </label>
+                      
+                      {/* Longsor */}
+                      <label className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedDisasterTypes.includes('longsor')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedDisasterTypes([...selectedDisasterTypes, 'longsor']);
+                            } else {
+                              setSelectedDisasterTypes(selectedDisasterTypes.filter(t => t !== 'longsor'));
+                            }
+                          }}
+                          className="w-4 h-4 text-red-500 rounded focus:ring-red-500"
+                        />
+                        <span className="text-sm text-gray-700">Tanah Longsor</span>
+                      </label>
+                      
+                      {/* Kebakaran */}
+                      <label className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedDisasterTypes.includes('kebakaran')}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedDisasterTypes([...selectedDisasterTypes, 'kebakaran']);
+                            } else {
+                              setSelectedDisasterTypes(selectedDisasterTypes.filter(t => t !== 'kebakaran'));
+                            }
+                          }}
+                          className="w-4 h-4 text-red-500 rounded focus:ring-red-500"
+                        />
+                        <span className="text-sm text-gray-700">Kebakaran Hutan</span>
+                      </label>
+                      
+                      {/* Clear Filter Button */}
+                      {selectedDisasterTypes.length > 0 && (
+                        <button
+                          onClick={() => setSelectedDisasterTypes([])}
+                          className="w-full mt-3 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded transition"
+                        >
+                          Hapus Semua Filter
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1913,7 +2067,7 @@ if (filteredForMarkers.length > 0 && !mapBounds) {
   }}  className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
           </div>
           
-          <form onSubmit={handleModalSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
+          <form onSubmit={handleModalSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto px-2">
             
             {/* Thumbnail Upload */}
             <div>
@@ -2122,43 +2276,79 @@ if (filteredForMarkers.length > 0 && !mapBounds) {
             </div>
 
             {/* Disaster Type & DAS */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              {/* Jenis Bencana */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Jenis Bencana</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Jenis Bencana
+                </label>
                 <select
-                  name="disasterType"
                   value={formData.disasterType}
-                  onChange={handleModalInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onChange={(e) => setFormData(prev => ({ ...prev, disasterType: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                   required
                 >
                   <option value="">Pilih Jenis Bencana</option>
                   <option value="Banjir">Banjir</option>
-                  <option value="Longsor">Longsor</option>
-                  <option value="Kebakaran">Kebakaran</option>
+                  <option value="Tanah Longsor dan Erosi">Tanah Longsor dan Erosi</option>
+                  <option value="Kebakaran Hutan dan Kekeringan">Kebakaran Hutan dan Kekeringan</option>
+                  <option value="Gempa Bumi">Gempa Bumi</option>
                 </select>
               </div>
+
+              {/* DAS */}
               <div>
-  <label className="block text-sm font-medium text-gray-700 mb-2">
-    DAS
-    {isLoadingDas && (
-      <span className="ml-2 text-xs text-gray-500">(Mengisi otomatis...)</span>
-    )}
-  </label>
-  <input
-    type="text"
-    name="das"
-    value={formData.das}
-    onChange={handleModalInputChange}
-    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-    placeholder="DAS akan terisi otomatis berdasarkan koordinat"
-  />
-  <p className="text-xs text-gray-500 mt-1">
-    DAS terisi otomatis dari koordinat, tetapi dapat diedit manual
-  </p>
-</div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  DAS
+                </label>
+                <input
+                  type="text"
+                  value={formData.das}
+                  onChange={(e) => setFormData(prev => ({ ...prev, das: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="DAS akan terisi otomatis berdasarkan koordinat"
+                  disabled={isLoadingDas}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  DAS terisi otomatis dari koordinat, tetapi dapat diedit manual
+                </p>
+              </div>
             </div>
             
+            {/* Curah Hujan - Full Width */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Curah Hujan (mm)
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  step="0.1"
+                  value={formData.curahHujan !== null ? formData.curahHujan : ''}
+                  onChange={(e) => setFormData(prev => ({ 
+                    ...prev, 
+                    curahHujan: e.target.value ? parseFloat(e.target.value) : null 
+                  }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Curah hujan akan terisi otomatis berdasarkan lokasi dan tanggal"
+                  disabled={formData.isLoadingRainfall}
+                />
+                {formData.isLoadingRainfall && (
+                  <div className="absolute right-3 top-2.5">
+                    <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Data curah hujan akan diambil otomatis berdasarkan lokasi dan tanggal kejadian
+              </p>
+              {formData.curahHujan !== null && formData.curahHujan === 0 && (
+                <p className="text-xs text-yellow-600 mt-1">
+                  ⚠️ Tidak ada data curah hujan untuk tanggal ini
+                </p>
+              )}
+            </div>
+
             {/* Featured Toggle */}
             <div className="flex items-center justify-between p-3 bg-gray-50 rounded border border-gray-200">
               <div>

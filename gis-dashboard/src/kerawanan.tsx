@@ -68,8 +68,76 @@ const [availableLayers, setAvailableLayers] = useState<{
   const [tutupanLahanData, setTutupanLahanData] = useState<Array<{
     pl2024_id: number;
     deskripsi_domain: string;
-    count: number;
+    luas_total: number;
+    color?: string;
   }>>([]);
+
+  const [geologiData, setGeologiData] = useState<Array<{
+    namobj: string;
+    umurobj: string;
+    keliling_total: number;
+    color?: string;
+  }>>([]);
+
+  const tutupanLahanColors = [
+    '#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', 
+    '#EC4899', '#14B8A6', '#F97316', '#6366F1', '#84CC16',
+    '#06B6D4', '#A855F7', '#EAB308', '#22C55E', '#0EA5E9'
+  ];
+
+  // Perbesar geologiColors menjadi 30+ warna
+  const geologiColors = [
+  '#FF0000', // Red
+  '#00FF00', // Lime
+  '#0000FF', // Blue
+  '#FFFF00', // Yellow
+  '#FF00FF', // Magenta
+  '#00FFFF', // Cyan
+  '#FFA500', // Orange
+  '#800080', // Purple
+  '#008000', // Green
+  '#FFC0CB', // Pink
+  '#A52A2A', // Brown
+  '#000080', // Navy
+  '#808000', // Olive
+  '#00CED1', // Dark Turquoise
+  '#FF6347', // Tomato
+  '#4B0082', // Indigo
+  '#FF1493', // Deep Pink
+  '#32CD32', // Lime Green
+  '#FF4500', // Orange Red
+  '#9400D3', // Dark Violet
+  '#FFD700', // Gold
+  '#8B4513', // Saddle Brown
+  '#20B2AA', // Light Sea Green
+  '#DC143C', // Crimson
+  '#7FFF00', // Chartreuse
+  '#8A2BE2', // Blue Violet
+  '#FF8C00', // Dark Orange
+  '#00FA9A', // Medium Spring Green
+  '#BA55D3', // Medium Orchid
+  '#ADFF2F', // Green Yellow
+  '#FF69B4', // Hot Pink
+  '#1E90FF', // Dodger Blue
+  '#CD5C5C', // Indian Red
+  '#00BFFF', // Deep Sky Blue
+  '#F08080', // Light Coral
+  '#FFDAB9', // Peach Puff
+  '#98FB98', // Pale Green
+  '#DDA0DD', // Plum
+  '#F0E68C', // Khaki
+  '#E6E6FA', // Lavender
+  '#FFE4B5', // Moccasin
+  '#D8BFD8', // Thistle
+  '#B0C4DE', // Light Steel Blue
+  '#FFDEAD', // Navajo White
+  '#F5DEB3', // Wheat
+  '#FFA07A', // Light Salmon
+  '#FA8072', // Salmon
+  '#87CEEB', // Sky Blue
+  '#B0E0E6', // Powder Blue
+  '#FFB6C1'  // Light Pink
+];
 
   const [kejadianPhotos, setKejadianPhotos] = useState<Array<{
     id: number;
@@ -80,6 +148,8 @@ const [availableLayers, setAvailableLayers] = useState<{
     latitude: number;
     longitude: number;
   }>>([]);
+  const [activeKejadianLayers, setActiveKejadianLayers] = useState<Map<string, {year: number, category: string}>>(new Map());
+  const [kejadianListings, setKejadianListings] = useState<Array<any>>([]);
 
   const loadLayerInBounds = async (tableName: string, customBounds?: [[number, number], [number, number]]) => {
   if (!mapInstanceRef.current || !window.L) {
@@ -91,8 +161,6 @@ const [availableLayers, setAvailableLayers] = useState<{
     const zoom = mapInstanceRef.current.getZoom();
     let boundsString = '';
     
-    // Jika ada currentBounds (filter administratif dipilih), gunakan itu
-    // Jika tidak ada, gunakan bounds seluruh Indonesia
     const boundsToUse = customBounds || currentBounds;
 
     if (boundsToUse) {
@@ -100,13 +168,10 @@ const [availableLayers, setAvailableLayers] = useState<{
       boundsString = `${minLat},${minLng},${maxLat},${maxLng}`;
       console.log('Loading layer:', tableName, 'zoom:', zoom, 'bounds:', boundsString);
     } else {
-      // Bounds seluruh Indonesia (approx)
-      // Format: minLat, minLng, maxLat, maxLng
-      boundsString = '-11,95,6,141'; // Indonesia bounds: lat -11 to 6, lng 95 to 141
+      boundsString = '-11,95,6,141';
       console.log('Loading layer:', tableName, 'zoom:', zoom, 'Indonesia bounds (no filter)');
     }
     
-    // TAMBAH: Kirim dasFilter jika ada
     const dasFilter = selectedDas.length > 0 ? selectedDas.map(d => d.nama_das) : null;
     const dasFilterParam = dasFilter ? `&dasFilter=${encodeURIComponent(JSON.stringify(dasFilter))}` : '';
     
@@ -123,6 +188,11 @@ const [availableLayers, setAvailableLayers] = useState<{
     const geojsonData = await response.json();
     console.log('GeoJSON data received for', tableName, ':', geojsonData.features?.length || 0, 'features');
     
+    // Log sample feature untuk debug
+    if (geojsonData.features && geojsonData.features.length > 0) {
+      console.log('Sample feature properties:', geojsonData.features[0].properties);
+    }
+    
     // Hapus layer lama jika ada
     if (layerGroupsRef.current[tableName]) {
       mapInstanceRef.current.removeLayer(layerGroupsRef.current[tableName]);
@@ -135,21 +205,132 @@ const [availableLayers, setAvailableLayers] = useState<{
       return;
     }
     
-    // Dapatkan warna konsisten untuk tabel ini
-    const tableColor = getColorForTable(tableName);
+    // PERBAIKAN: Build color map LANGSUNG dari GeoJSON features
+    let colorMap = new Map();
     
-    // Buat layer group baru
-    const layerGroup = window.L.geoJSON(geojsonData, {
-      pane: 'overlayPane',
-      style: function(feature) {
+    if (tableName === 'tutupan_lahan') {
+      // Fetch data untuk populate tabel bottom tabs
+      const fetchedData = await fetchTutupanLahanData();
+      
+      // Extract unique pl2024_id dari GeoJSON
+      const uniquePl2024Ids = new Set<string>();
+      geojsonData.features.forEach((feature: any) => {
+        uniquePl2024Ids.add(String(feature.properties.pl2024_id));
+      });
+      
+      // Assign colors
+      let colorIndex = 0;
+      uniquePl2024Ids.forEach(pl2024_id => {
+        colorMap.set(pl2024_id, tutupanLahanColors[colorIndex % tutupanLahanColors.length]);
+        colorIndex++;
+      });
+      
+      console.log('Building color map for tutupan_lahan, unique count:', uniquePl2024Ids.size);
+      
+    } else if (tableName === 'geologi') {
+      // Extract unique combinations dari GeoJSON
+      const uniqueCombinations = new Map<string, {namobj: string, umurobj: string}>();
+      
+      geojsonData.features.forEach((feature: any) => {
+        const namobj = feature.properties.namobj || '';
+        const umurobj = feature.properties.umurobj || '';
+        const key = `${namobj}|${umurobj}`;
+        
+        if (!uniqueCombinations.has(key)) {
+          uniqueCombinations.set(key, { namobj, umurobj });
+        }
+      });
+      
+      // Assign colors berdasarkan urutan sorted
+      const sortedKeys = Array.from(uniqueCombinations.keys()).sort();
+      sortedKeys.forEach((key, index) => {
+        colorMap.set(key, geologiColors[index % geologiColors.length]);
+        console.log(`Map: ${key} -> ${geologiColors[index % geologiColors.length]}`);
+      });
+      
+      console.log('Building color map for geologi, unique count:', uniqueCombinations.size);
+      
+      // PENTING: Update geologiData untuk tabel bottom tabs dengan data yang sudah di-aggregate
+      const aggregatedData: any[] = [];
+      const aggregateMap = new Map<string, number>();
+      
+      geojsonData.features.forEach((feature: any) => {
+        const namobj = feature.properties.namobj || '';
+        const umurobj = feature.properties.umurobj || '';
+        const keliling = parseFloat(feature.properties.keliling_m || 0);
+        const key = `${namobj}|${umurobj}`;
+        
+        if (aggregateMap.has(key)) {
+          aggregateMap.set(key, aggregateMap.get(key)! + keliling);
+        } else {
+          aggregateMap.set(key, keliling);
+        }
+      });
+      
+      // Convert to array with colors
+      sortedKeys.forEach(key => {
+        const [namobj, umurobj] = key.split('|');
+        aggregatedData.push({
+          namobj,
+          umurobj,
+          keliling_total: aggregateMap.get(key) || 0,
+          color: colorMap.get(key)
+        });
+      });
+      
+      setGeologiData(aggregatedData);
+      console.log('Geologi data set from GeoJSON:', aggregatedData.length);
+    }
+    
+    // MODIFIKASI: Styling berdasarkan tabel dengan color map yang sudah dibangun
+    let styleFunction;
+    
+    if (tableName === 'tutupan_lahan') {
+      styleFunction = function(feature: any) {
+        const pl2024_id = String(feature.properties.pl2024_id);
+        const fillColor = colorMap.get(pl2024_id) || '#EF4444';
+        
+        return {
+          color: fillColor,
+          weight: zoom > 10 ? 2 : 1,
+          opacity: 0.8,
+          fillColor: fillColor,
+          fillOpacity: zoom > 10 ? 0.4 : 0.3
+        };
+      };
+    } else if (tableName === 'geologi') {
+      styleFunction = function(feature: any) {
+        const namobj = feature.properties.namobj || '';
+        const umurobj = feature.properties.umurobj || '';
+        const key = `${namobj}|${umurobj}`;
+        const fillColor = colorMap.get(key) || '#B45309';
+        
+        return {
+          color: fillColor,
+          weight: zoom > 10 ? 2 : 1,
+          opacity: 0.8,
+          fillColor: fillColor,
+          fillOpacity: zoom > 10 ? 0.4 : 0.3
+        };
+      };
+    } else {
+      const tableColor = getColorForTable(tableName);
+      styleFunction = function(feature: any) {
         return {
           color: tableColor,
           weight: zoom > 10 ? 2 : 1,
           opacity: 0.8,
           fillOpacity: zoom > 10 ? 0.4 : 0.3
         };
-      },
+      };
+    }
+    
+    // Buat layer group baru dengan styling dinamis
+    const layerGroup = window.L.geoJSON(geojsonData, {
+      pane: 'overlayPane',
+      style: styleFunction,
       pointToLayer: function(feature, latlng) {
+        const tableColor = getColorForTable(tableName);
         return window.L.circleMarker(latlng, {
           radius: zoom > 10 ? 6 : 4,
           fillColor: tableColor,
@@ -176,10 +357,6 @@ const [availableLayers, setAvailableLayers] = useState<{
     
     layerGroup.addTo(mapInstanceRef.current);
     layerGroupsRef.current[tableName] = layerGroup;
-    
-    if (tableName === 'tutupan_lahan') {
-      await fetchTutupanLahanData();
-    }
 
     const boundsType = currentBounds ? 'administrative bounds' : 'Indonesia bounds (all data)';
     console.log(`Layer loaded successfully with ${boundsType}`);
@@ -251,8 +428,8 @@ const handleLogout = () => {
   setIsAuthenticated(false);
 };
 
-const fetchTutupanLahanData = async () => {
-  if (!mapInstanceRef.current) return;
+const fetchTutupanLahanData = async (): Promise<Array<{pl2024_id: number; deskripsi_domain: string; luas_total: number; color: string}>> => {
+  if (!mapInstanceRef.current) return [];
   
   try {
     let boundsString = '';
@@ -278,30 +455,26 @@ const fetchTutupanLahanData = async () => {
     const result = await response.json();
     
     if (result.success) {
-      setTutupanLahanData(result.data);
+      // Assign colors to each unique deskripsi_domain
+      const dataWithColors = result.data.map((item: any, index: number) => ({
+        ...item,
+        color: tutupanLahanColors[index % tutupanLahanColors.length]
+      }));
+      
+      setTutupanLahanData(dataWithColors);
+      return dataWithColors; // RETURN DATA
     }
+    
+    return [];
   } catch (error) {
     console.error('Error fetching tutupan lahan data:', error);
     setTutupanLahanData([]);
+    return [];
   }
 };
 
-const fetchKejadianPhotos = async () => {
-  if (!mapInstanceRef.current) {
-    console.log('Map not ready, cannot fetch photos');
-    return;
-  }
-  
-  // Ambil semua layer kejadian yang aktif
-  const activeKejadianLayers = Array.from(activeLayers).filter(layer => layer.startsWith('kejadian_'));
-  
-  console.log('Fetching photos for active kejadian layers:', activeKejadianLayers);
-  
-  if (activeKejadianLayers.length === 0) {
-    console.log('No active kejadian layers');
-    setKejadianPhotos([]);
-    return;
-  }
+const fetchGeologiData = async (): Promise<Array<{namobj: string; umurobj: string; keliling_total: number; color: string}>> => {
+  if (!mapInstanceRef.current) return [];
   
   try {
     let boundsString = '';
@@ -316,13 +489,166 @@ const fetchKejadianPhotos = async () => {
     const dasFilter = selectedDas.length > 0 ? selectedDas.map(d => d.nama_das) : null;
     const dasFilterParam = dasFilter ? `&dasFilter=${encodeURIComponent(JSON.stringify(dasFilter))}` : '';
     
+    const response = await fetch(
+      `${API_URL}/api/geologi/data?bounds=${boundsString}${dasFilterParam}`
+    );
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      // PERBAIKAN: Deduplikasi di frontend juga untuk memastikan unique combinations
+      const uniqueMap = new Map<string, any>();
+      
+      result.data.forEach((item: any) => {
+        const key = `${item.namobj}|${item.umurobj}`;
+        if (uniqueMap.has(key)) {
+          // Jika sudah ada, akumulasi keliling_total
+          const existing = uniqueMap.get(key);
+          existing.keliling_total += parseFloat(item.keliling_total || 0);
+        } else {
+          uniqueMap.set(key, {
+            namobj: item.namobj,
+            umurobj: item.umurobj,
+            keliling_total: parseFloat(item.keliling_total || 0)
+          });
+        }
+      });
+      
+      // Convert map to array dan assign colors
+      const uniqueData = Array.from(uniqueMap.values());
+      const dataWithColors = uniqueData.map((item: any, index: number) => ({
+        ...item,
+        color: geologiColors[index % geologiColors.length]
+      }));
+      
+      console.log('Unique geologi data after deduplication:', dataWithColors.length);
+      
+      setGeologiData(dataWithColors);
+      return dataWithColors;
+    }
+    
+    return [];
+  } catch (error) {
+    console.error('Error fetching geologi data:', error);
+    setGeologiData([]);
+    return [];
+  }
+};
+
+const fetchKejadianListings = async () => {
+  try {
+    // Ambil semua layer kejadian otomatis yang aktif (yang ada di activeKejadianLayers)
+    const activeKejadianLayerNames = Array.from(activeLayers).filter(name => 
+      name.startsWith('kejadian_') && activeKejadianLayers.has(name)
+    );
+    
+    console.log('Fetching listings for kejadian layers:', activeKejadianLayerNames);
+    console.log('activeKejadianLayers Map:', Array.from(activeKejadianLayers.entries()));
+    
+    if (activeKejadianLayerNames.length === 0) {
+      console.log('No active auto kejadian layers');
+      setKejadianListings([]);
+      return;
+    }
+    
+    let boundsString = '';
+    if (currentBounds) {
+      const [[minLat, minLng], [maxLat, maxLng]] = currentBounds;
+      boundsString = `${minLat},${minLng},${maxLat},${maxLng}`;
+    } else {
+      boundsString = '-11,95,6,141';
+    }
+    
+    const dasFilter = selectedDas.length > 0 ? selectedDas.map(d => d.nama_das) : null;
+    const dasFilterParam = dasFilter ? `&dasFilter=${encodeURIComponent(JSON.stringify(dasFilter))}` : '';
+    
+    const allListings: any[] = [];
+    
+    for (const layerName of activeKejadianLayerNames) {
+      const metadata = activeKejadianLayers.get(layerName);
+      if (!metadata) {
+        console.warn('No metadata found for layer:', layerName);
+        continue;
+      }
+      
+      const categoryParam = `&category=${encodeURIComponent(metadata.category)}`;
+      
+      console.log(`Fetching listings for ${metadata.category} ${metadata.year}...`);
+      
+      const response = await fetch(
+        `${API_URL}/api/kejadian/by-year/${metadata.year}?bounds=${boundsString}${dasFilterParam}${categoryParam}`
+      );
+      
+      if (!response.ok) {
+        console.error(`Failed to fetch listings for ${layerName}`);
+        continue;
+      }
+      
+      const data = await response.json();
+      console.log(`Received ${data.features?.length || 0} features for ${metadata.category} ${metadata.year}`);
+      
+      if (data.features && data.features.length > 0) {
+        allListings.push(...data.features.map((f: any) => f.properties));
+      }
+    }
+    
+    console.log('Total kejadian listings fetched:', allListings.length);
+    
+    // Sort by date descending
+    allListings.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    
+    setKejadianListings(allListings);
+    
+  } catch (error) {
+    console.error('Error fetching kejadian listings:', error);
+    setKejadianListings([]);
+  }
+};
+
+const fetchKejadianPhotos = async () => {
+  try {
+    const activeKejadianLayerNames = Array.from(activeLayers).filter(name => name.startsWith('kejadian_'));
+    
+    console.log('Fetching photos for active kejadian layers:', activeKejadianLayerNames);
+    
+    if (activeKejadianLayerNames.length === 0) {
+      console.log('No active kejadian layers');
+      setKejadianPhotos([]);
+      return;
+    }
+    
+    // Ambil semua year dari active kejadian layers menggunakan metadata yang tersimpan
+    const years = activeKejadianLayerNames.map(name => {
+      const metadata = activeKejadianLayers.get(name);
+      return metadata?.year;
+    }).filter(year => year !== undefined);
+    
+    if (years.length === 0) {
+      console.log('No valid years found');
+      setKejadianPhotos([]);
+      return;
+    }
+    
+    let boundsString = '';
+    if (currentBounds) {
+      const [[minLat, minLng], [maxLat, maxLng]] = currentBounds;
+      boundsString = `${minLat},${minLng},${maxLat},${maxLng}`;
+    } else {
+      boundsString = '-11,95,6,141';
+    }
+    
+    const dasFilter = selectedDas.length > 0 ? selectedDas.map(d => d.nama_das) : null;
+    
     console.log('Fetching photos with bounds:', boundsString, 'dasFilter:', dasFilter);
     
-    // Fetch photos untuk setiap tahun yang aktif
-    const allPhotos: typeof kejadianPhotos = [];
+    const allPhotos: any[] = [];
     
-    for (const layerName of activeKejadianLayers) {
-      const year = parseInt(layerName.replace('kejadian_', ''));
+    for (const year of years) {
+      const dasFilterParam = dasFilter ? `&dasFilter=${encodeURIComponent(JSON.stringify(dasFilter))}` : '';
       
       console.log(`Fetching photos for year ${year}...`);
       
@@ -331,27 +657,28 @@ const fetchKejadianPhotos = async () => {
       );
       
       if (!response.ok) {
-        console.error(`Failed to fetch photos for year ${year}:`, response.status);
-        throw new Error(`HTTP error! status: ${response.status}`);
+        console.error(`Failed to fetch photos for year ${year}`);
+        continue;
       }
       
-      const result = await response.json();
+      const data = await response.json();
+      console.log(`Received ${data.photos?.length || 0} photos for year ${year}`);
       
-      if (result.success && result.photos) {
-        console.log(`Received ${result.photos.length} photos for year ${year}`);
-        allPhotos.push(...result.photos);
+      if (data.photos && data.photos.length > 0) {
+        allPhotos.push(...data.photos);
       }
     }
     
     console.log('Total kejadian photos fetched:', allPhotos.length);
     setKejadianPhotos(allPhotos);
+    
   } catch (error) {
     console.error('Error fetching kejadian photos:', error);
     setKejadianPhotos([]);
   }
 };
 
-const loadKejadianLayer = async (layerName: string, year: number, forceDasFilter?: string[] | null) => {
+const loadKejadianLayer = async (layerName: string, year: number, category?: string, forceDasFilter?: string[] | null) => {
   if (!mapInstanceRef.current || !window.L) {
     console.log('Map not ready');
     return;
@@ -367,17 +694,17 @@ const loadKejadianLayer = async (layerName: string, year: number, forceDasFilter
       boundsString = '-11,95,6,141';
     }
     
-    // Gunakan forceDasFilter jika ada, jika tidak gunakan selectedDas
     const dasFilter = forceDasFilter !== undefined 
       ? forceDasFilter 
       : (selectedDas.length > 0 ? selectedDas.map(d => d.nama_das) : null);
     const dasFilterParam = dasFilter ? `&dasFilter=${encodeURIComponent(JSON.stringify(dasFilter))}` : '';
+    const categoryParam = category ? `&category=${encodeURIComponent(category)}` : '';
     
-    console.log('Loading kejadian layer:', layerName, 'year:', year, 'bounds:', boundsString, 'dasFilter:', dasFilter);
-    console.log('Full URL:', `${API_URL}/api/kejadian/by-year/${year}?bounds=${boundsString}${dasFilterParam}`);
+    console.log('Loading kejadian layer:', layerName, 'year:', year, 'category:', category, 'bounds:', boundsString, 'dasFilter:', dasFilter);
+    console.log('Full URL:', `${API_URL}/api/kejadian/by-year/${year}?bounds=${boundsString}${dasFilterParam}${categoryParam}`);
     
     const response = await fetch(
-      `${API_URL}/api/kejadian/by-year/${year}?bounds=${boundsString}${dasFilterParam}`
+      `${API_URL}/api/kejadian/by-year/${year}?bounds=${boundsString}${dasFilterParam}${categoryParam}`
     );
     
     if (!response.ok) {
@@ -678,7 +1005,8 @@ const handleRemoveDas = async (index: number) => {
     setCurrentBounds(null);
     setSelectedAreas([]);
     
-    const kejadianResponse = await fetch(`${API_URL}/api/kejadian/years`);
+    // const kejadianResponse = await fetch('${API_URL}/api/kejadian/years');
+    const kejadianResponse = await fetch(`${API_URL}/api/layers`);
     const kejadianData = await kejadianResponse.json();
       
     const allKejadianLayers = kejadianData.years.map((year: number) => ({
@@ -691,20 +1019,34 @@ const handleRemoveDas = async (index: number) => {
       kerawanan: layerData.kerawanan || [], 
       mitigasiAdaptasi: layerData.mitigasiAdaptasi || [], 
       lainnya: layerData.lainnya || [],
-      kejadian: allKejadianLayers || []
+      kejadian: kejadianData.kejadian || []
     });
     
+    // setTimeout(async () => {
+    //   for (const tableName of activeLayers) {
+    //     if (tableName.startsWith('kejadian_')) {
+    //       const year = parseInt(tableName.replace('kejadian_', ''));
+    //       await loadKejadianLayer(tableName, year);
+    //     } else {
+    //       await loadLayerInBounds(tableName, null);
+    //     }
+    //   }
+    // }, 100);
     setTimeout(async () => {
       for (const tableName of activeLayers) {
         if (tableName.startsWith('kejadian_')) {
-          const year = parseInt(tableName.replace('kejadian_', ''));
-          await loadKejadianLayer(tableName, year);
+          // Parse category and year from tableName format: kejadian_Category_Name_Year
+          const parts = tableName.split('_');
+          if (parts.length >= 3) {
+            const year = parseInt(parts[parts.length - 1]);
+            const category = parts.slice(1, -1).join(' ');
+            await loadKejadianLayer(tableName, year, category);
+          }
         } else {
           await loadLayerInBounds(tableName, null);
         }
       }
     }, 100);
-    
     if (mapInstanceRef.current) {
       mapInstanceRef.current.setView([-2.5, 118.0], 5);
     }
@@ -735,14 +1077,29 @@ const updateMapBoundsDas = async (dasList: Array<any>) => {
       await checkLayerAvailability(data.bounds);
       
       // Tunggu sebentar agar state ter-update, lalu reload layers
+      // setTimeout(async () => {
+      //   const dasNames = dasList.map(d => d.nama_das);
+      //   for (const tableName of activeLayers) {
+      //     if (tableName.startsWith('kejadian_')) {
+      //       const year = parseInt(tableName.replace('kejadian_', ''));
+      //       await loadKejadianLayer(tableName, year, dasNames);
+      //     } else {
+      //       await loadLayerInBounds(tableName, data.bounds); // PASS BOUNDS LANGSUNG
+      //     }
+      //   }
+      // }, 100);
       setTimeout(async () => {
         const dasNames = dasList.map(d => d.nama_das);
         for (const tableName of activeLayers) {
           if (tableName.startsWith('kejadian_')) {
-            const year = parseInt(tableName.replace('kejadian_', ''));
-            await loadKejadianLayer(tableName, year, dasNames);
+            const parts = tableName.split('_');
+            if (parts.length >= 3) {
+              const year = parseInt(parts[parts.length - 1]);
+              const category = parts.slice(1, -1).join(' ');
+              await loadKejadianLayer(tableName, year, category, dasNames);
+            }
           } else {
-            await loadLayerInBounds(tableName, data.bounds); // PASS BOUNDS LANGSUNG
+            await loadLayerInBounds(tableName, data.bounds);
           }
         }
       }, 100);
@@ -847,7 +1204,8 @@ const handleRemoveArea = async (index: number) => {
     setCurrentBounds(null);
     setSelectedDas([]);
     
-    const kejadianResponse = await fetch(`${API_URL}/api/kejadian/years`);
+    // const kejadianResponse = await fetch('${API_URL}/api/kejadian/years');
+    const kejadianResponse = await fetch(`${API_URL}/api/layers`);
     const kejadianData = await kejadianResponse.json();
       
     const allKejadianLayers = kejadianData.years.map((year: number) => ({
@@ -860,20 +1218,34 @@ const handleRemoveArea = async (index: number) => {
       kerawanan: layerData.kerawanan || [], 
       mitigasiAdaptasi: layerData.mitigasiAdaptasi || [], 
       lainnya: layerData.lainnya || [],
-      kejadian: allKejadianLayers || []
+      kejadian: kejadianData.kejadian || []
     });
     
+    // setTimeout(async () => {
+    //   for (const tableName of activeLayers) {
+    //     if (tableName.startsWith('kejadian_')) {
+    //       const year = parseInt(tableName.replace('kejadian_', ''));
+    //       await loadKejadianLayer(tableName, year);
+    //     } else {
+    //       await loadLayerInBounds(tableName, null);
+    //     }
+    //   }
+    // }, 100);
     setTimeout(async () => {
       for (const tableName of activeLayers) {
         if (tableName.startsWith('kejadian_')) {
-          const year = parseInt(tableName.replace('kejadian_', ''));
-          await loadKejadianLayer(tableName, year);
+          // Parse category and year from tableName format: kejadian_Category_Name_Year
+          const parts = tableName.split('_');
+          if (parts.length >= 3) {
+            const year = parseInt(parts[parts.length - 1]);
+            const category = parts.slice(1, -1).join(' ');
+            await loadKejadianLayer(tableName, year, category);
+          }
         } else {
           await loadLayerInBounds(tableName, null);
         }
       }
     }, 100);
-    
     if (mapInstanceRef.current) {
       mapInstanceRef.current.setView([-2.5, 118.0], 5);
     }
@@ -904,13 +1276,28 @@ const updateMapBounds = async (areas: Array<any>) => {
       await checkLayerAvailability(data.bounds);
       
       // Tunggu sebentar agar state ter-update, lalu reload layers
+      // setTimeout(async () => {
+      //   for (const tableName of activeLayers) {
+      //     if (tableName.startsWith('kejadian_')) {
+      //       const year = parseInt(tableName.replace('kejadian_', ''));
+      //       await loadKejadianLayer(tableName, year, null);
+      //     } else {
+      //       await loadLayerInBounds(tableName, data.bounds); // PASS BOUNDS LANGSUNG
+      //     }
+      //   }
+      // }, 100);
       setTimeout(async () => {
+        const dasNames = dasList.map(d => d.nama_das);
         for (const tableName of activeLayers) {
           if (tableName.startsWith('kejadian_')) {
-            const year = parseInt(tableName.replace('kejadian_', ''));
-            await loadKejadianLayer(tableName, year, null);
+            const parts = tableName.split('_');
+            if (parts.length >= 3) {
+              const year = parseInt(parts[parts.length - 1]);
+              const category = parts.slice(1, -1).join(' ');
+              await loadKejadianLayer(tableName, year, category, dasNames);
+            }
           } else {
-            await loadLayerInBounds(tableName, data.bounds); // PASS BOUNDS LANGSUNG
+            await loadLayerInBounds(tableName, data.bounds);
           }
         }
       }, 100);
@@ -923,10 +1310,7 @@ const updateMapBounds = async (areas: Array<any>) => {
 // Function untuk check layer availability
 const checkLayerAvailability = async (bounds: [[number, number], [number, number]]) => {
   try {
-    // TAMBAH: Kirim dasFilter jika ada DAS yang dipilih
     const dasFilter = selectedDas.length > 0 ? selectedDas.map(d => d.nama_das) : null;
-    
-    console.log('Checking layer availability with:', { bounds, dasFilter });
     
     // Check regular layers - KIRIM dasFilter
     const layersResponse = await fetch(`${API_URL}/api/layers/check-availability`, {
@@ -934,32 +1318,32 @@ const checkLayerAvailability = async (bounds: [[number, number], [number, number
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         bounds,
-        dasFilter // TAMBAH INI
+        dasFilter
       })
     });
     
     const layersData = await layersResponse.json();
     console.log('Available layers response:', layersData);
     
-    // Check kejadian years availability - KIRIM dasFilter
+    // Check kejadian availability - KIRIM dasFilter
     const kejadianResponse = await fetch(`${API_URL}/api/kejadian/check-years-availability`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         bounds,
-        dasFilter // TAMBAH INI
+        dasFilter
       })
     });
     
     const kejadianData = await kejadianResponse.json();
-    console.log('Available kejadian years:', kejadianData);
+    console.log('Available kejadian:', kejadianData);
     
     // Group available layers by section
     const grouped = {
       kerawanan: [] as Array<{id: string, name: string}>,
       mitigasiAdaptasi: [] as Array<{id: string, name: string}>,
       lainnya: [] as Array<{id: string, name: string}>,
-      kejadian: [] as Array<{id: string, name: string, year: number}>
+      kejadian: [] as Array<{id: string, name: string, category: string, year: number, count: number}>
     };
     
     // Add regular layers
@@ -972,12 +1356,14 @@ const checkLayerAvailability = async (bounds: [[number, number], [number, number
       }
     });
     
-    // Add kejadian layers for available years
-    if (kejadianData.availableYears && kejadianData.availableYears.length > 0) {
-      grouped.kejadian = kejadianData.availableYears.map((year: number) => ({
-        id: `kejadian_${year}`,
-        name: `kejadian_${year}`,
-        year: year
+    // Add kejadian layers for available category + year combinations
+    if (kejadianData.availableKejadian && kejadianData.availableKejadian.length > 0) {
+      grouped.kejadian = kejadianData.availableKejadian.map((item: any) => ({
+        id: `kejadian_${item.category.replace(/\s+/g, '_')}_${item.year}`,
+        name: `${item.category} ${item.year}`,
+        category: item.category,
+        year: item.year,
+        count: item.count
       }));
     }
     
@@ -1003,18 +1389,30 @@ const checkLayerAvailability = async (bounds: [[number, number], [number, number
   //   });
   // };
 
-  const handleLayerToggle = async (tableName: string, isChecked: boolean) => {
-  console.log('Toggle layer clicked:', tableName, 'isChecked:', isChecked);
+  const handleLayerToggle = async (tableName: string, isChecked: boolean, year?: number, category?: string, isShapefile?: boolean) => {
+  console.log('Toggle layer clicked:', tableName, 'isChecked:', isChecked, 'year:', year, 'category:', category, 'isShapefile:', isShapefile);
   console.log('Current active layers:', Array.from(activeLayers));
   
   if (isChecked) {
     // Tambahkan layer ke active layers
     setActiveLayers(prev => new Set([...prev, tableName]));
     
-    // Check jika ini adalah kejadian layer
-    if (tableName.startsWith('kejadian_')) {
-      const year = parseInt(tableName.replace('kejadian_', ''));
-      await loadKejadianLayer(tableName, year);
+    // Simpan metadata untuk kejadian layer
+    if (tableName.startsWith('kejadian_') && year && category && !isShapefile) {
+      // Layer otomatis (point markers)
+      setActiveKejadianLayers(prev => {
+        const newMap = new Map(prev);
+        newMap.set(tableName, { year, category });
+        return newMap;
+      });
+      await loadKejadianLayer(tableName, year, category);
+    } else if (isShapefile) {
+      // Layer manual shapefile
+      await loadLayerInBounds(tableName);
+    } else if (tableName.startsWith('kejadian_')) {
+      // Fallback untuk format lama (hanya year)
+      const yearFromName = parseInt(tableName.replace('kejadian_', ''));
+      await loadKejadianLayer(tableName, yearFromName);
     } else {
       // Load layer biasa
       await loadLayerInBounds(tableName);
@@ -1028,15 +1426,22 @@ const checkLayerAvailability = async (bounds: [[number, number], [number, number
       delete layerGroupsRef.current[tableName];
       console.log('Layer removed from map');
       
-      if (tableName === 'tutupan_lahan') {
-        setTutupanLahanData([]);
-      }
-
+      // Hapus metadata kejadian layer
       if (tableName.startsWith('kejadian_')) {
+        setActiveKejadianLayers(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(tableName);
+          return newMap;
+        });
+        
         // Tunggu state update, lalu fetch photos lagi
         setTimeout(async () => {
           await fetchKejadianPhotos();
         }, 100);
+      }
+      
+      if (tableName === 'tutupan_lahan') {
+        setTutupanLahanData([]);
       }
 
       // Update state
@@ -1074,54 +1479,50 @@ const checkLayerAvailability = async (bounds: [[number, number], [number, number
   // Fetch layers from database on mount
   useEffect(() => {
   fetchLayers();
-  fetchKejadianYears();
+  // fetchKejadianYears();
 }, []);
 
-const fetchKejadianYears = async () => {
-  try {
-    const response = await fetch(`${API_URL}/api/kejadian/years`);
-    const data = await response.json();
+// const fetchKejadianYears = async () => {
+//   try {
+//     const response = await fetch(`${API_URL}/api/kejadian/years`);
+//     const data = await response.json();
     
-    const kejadianLayers = data.years.map((year: number) => ({
-      id: `kejadian_${year}`,
-      name: `kejadian_${year}`,
-      year: year
-    }));
+//     const kejadianLayers = data.years.map((year: number) => ({
+//       id: `kejadian_${year}`,
+//       name: `kejadian_${year}`,
+//       year: year
+//     }));
     
-    setLayerData(prev => ({
-      ...prev,
-      kejadian: kejadianLayers
-    }));
+//     setLayerData(prev => ({
+//       ...prev,
+//       kejadian: kejadianLayers
+//     }));
     
-    setAvailableLayers(prev => ({
-      ...prev,
-      kejadian: kejadianLayers
-    }));
+//     setAvailableLayers(prev => ({
+//       ...prev,
+//       kejadian: kejadianLayers
+//     }));
     
-  } catch (error) {
-    console.error('Error fetching kejadian years:', error);
-  }
-};
+//   } catch (error) {
+//     console.error('Error fetching kejadian years:', error);
+//   }
+// };
 
 const fetchLayers = async () => {
   try {
     const response = await fetch(`${API_URL}/api/layers`);
     const data = await response.json();
-    setLayerData(prev => ({
-      ...prev,
-      ...data
-    }));
+    
+    console.log('Fetched layers data:', data);
+    
+    setLayerData(data);
     
     // Jika ada bounds yang dipilih, filter layers
     if (currentBounds) {
       checkLayerAvailability(currentBounds);
     } else {
-      // Jika tidak ada bounds, tampilkan semua layer termasuk semua kejadian
-      setAvailableLayers(prev => ({
-        ...prev,
-        ...data,
-        kejadian: layerData.kejadian // Use all kejadian years from layerData
-      }));
+      // Jika tidak ada bounds, tampilkan semua layer termasuk kejadian
+      setAvailableLayers(data);
     }
   } catch (error) {
     console.error('Error fetching layers:', error);
@@ -1131,7 +1532,7 @@ const fetchLayers = async () => {
 
 
 
-  const handleAddClick = (section: 'kerawanan' | 'mitigasiAdaptasi' | 'lainnya') => {
+  const handleAddClick = (section: 'kerawanan' | 'mitigasiAdaptasi' | 'lainnya' | 'kejadian') => {
   // Check authentication
   if (!isAuthenticated) {
     if (window.confirm('Anda harus login sebagai admin untuk menambah data. Pergi ke halaman login?')) {
@@ -1324,7 +1725,8 @@ const fetchLayers = async () => {
     const titles = {
       kerawanan: 'Kerawanan',
       mitigasiAdaptasi: 'Mitigasi dan Adaptasi',
-      lainnya: 'Lain lain'
+      lainnya: 'Lain lain',
+      kejadian: 'Kejadian'
     };
     return titles[section as keyof typeof titles];
   };
@@ -1351,37 +1753,28 @@ const fetchLayers = async () => {
   // }, [activeLayers, mapReady]);
 
   useEffect(() => {
-  if (!mapReady || !mapInstanceRef.current) return;
+  if (!mapInstanceRef.current) return;
 
-  let zoomTimeout: NodeJS.Timeout;
-  
-  const handleZoomEnd = () => {
-    // Debounce untuk menghindari terlalu banyak request
-    clearTimeout(zoomTimeout);
-    zoomTimeout = setTimeout(() => {
-      const currentZoom = mapInstanceRef.current?.getZoom();
-      console.log('Zoom changed to:', currentZoom, '- Reloading layers for new simplification level');
-      
-      // Ambil snapshot activeLayers saat ini
-      const currentActiveLayers = Array.from(activeLayers);
-      
-      if (currentActiveLayers.length === 0) {
-        console.log('No active layers to reload');
-        return;
-      }
-      
-      console.log('Reloading active layers:', currentActiveLayers);
-      
-      // Reload semua active layers dengan zoom level baru
-      currentActiveLayers.forEach(async (tableName) => {
-        if (tableName.startsWith('kejadian_')) {
-          const year = parseInt(tableName.replace('kejadian_', ''));
-          await loadKejadianLayer(tableName, year);
+  const handleZoomEnd = async () => {
+    const currentZoom = mapInstanceRef.current.getZoom();
+    console.log('Zoom changed to:', currentZoom, '- Reloading layers for new simplification level');
+    
+    const layersToReload = Array.from(activeLayers);
+    console.log('Reloading active layers:', layersToReload);
+    
+    for (const layerName of layersToReload) {
+      if (layerName.startsWith('kejadian_')) {
+        // Ambil metadata yang tersimpan
+        const metadata = activeKejadianLayers.get(layerName);
+        if (metadata) {
+          await loadKejadianLayer(layerName, metadata.year, metadata.category);
         } else {
-          await loadLayerInBounds(tableName);
+          console.warn('No metadata found for kejadian layer:', layerName);
         }
-      });
-    }, 500); // Delay 500ms setelah zoom selesai
+      } else {
+        await loadLayerInBounds(layerName);
+      }
+    }
   };
 
   mapInstanceRef.current.on('zoomend', handleZoomEnd);
@@ -1390,9 +1783,8 @@ const fetchLayers = async () => {
     if (mapInstanceRef.current) {
       mapInstanceRef.current.off('zoomend', handleZoomEnd);
     }
-    clearTimeout(zoomTimeout);
   };
-}, [mapReady, activeLayers]);
+}, [activeLayers, activeKejadianLayers, currentBounds, selectedDas]);
 
 //   useEffect(() => {
 //   if (!mapReady || activeLayers.size === 0) return;
@@ -1464,16 +1856,24 @@ const fetchLayers = async () => {
   }, []);
 
   useEffect(() => {
-  // Auto-fetch photos ketika ada perubahan pada activeLayers kejadian
-  const hasActiveKejadian = Array.from(activeLayers).some(layer => layer.startsWith('kejadian_'));
-  if (hasActiveKejadian) {
-    console.log('Active kejadian layers detected, fetching photos...');
+  // Auto-fetch photos dan listings ketika ada perubahan pada activeLayers kejadian
+  const activeAutoKejadian = Array.from(activeLayers).filter(layer => 
+    layer.startsWith('kejadian_') && activeKejadianLayers.has(layer)
+  );
+  
+  console.log('useEffect triggered - activeAutoKejadian:', activeAutoKejadian);
+  console.log('activeKejadianLayers:', Array.from(activeKejadianLayers.entries()));
+  
+  if (activeAutoKejadian.length > 0) {
+    console.log('Active auto kejadian layers detected, fetching photos and listings...');
     fetchKejadianPhotos();
+    fetchKejadianListings();
   } else {
-    console.log('No active kejadian layers, clearing photos');
+    console.log('No active auto kejadian layers, clearing photos and listings');
     setKejadianPhotos([]);
+    setKejadianListings([]);
   }
-}, [activeLayers, currentBounds, selectedDas]);
+}, [activeLayers, activeKejadianLayers, currentBounds, selectedDas]);
 
   const [activeTab, setActiveTab] = useState('administrasi');
   const [activeBottomTab, setActiveBottomTab] = useState('curahHujan');
@@ -1778,7 +2178,15 @@ const fetchLayers = async () => {
 
   const bottomTabs = React.useMemo(() => {
   const tabs: Array<{id: string, label: string, icon: string}> = [];
-  
+    
+    const hasAutoKejadian = Array.from(activeLayers).some(layer => 
+      layer.startsWith('kejadian_') && activeKejadianLayers.has(layer)
+    );
+
+    if (hasAutoKejadian) {
+      tabs.push({ id: 'listings', label: 'Listings', icon: '📋' });
+    }
+
     // Hanya tambahkan tab untuk layer-layer yang punya data bottom tabs
     if (activeLayers.has('tutupan_lahan')) {
       tabs.push({ id: 'tutupanLahan', label: 'Tutupan Lahan', icon: '🌳' });
@@ -1793,7 +2201,7 @@ const fetchLayers = async () => {
     }
     
     return tabs;
-  }, [activeLayers]);
+  }, [activeLayers, activeKejadianLayers]);
 
   // const renderBottomContent = () => {
   //   switch(activeBottomTab) {
@@ -1950,31 +2358,141 @@ const fetchLayers = async () => {
 
   // Render konten berdasarkan tab yang aktif
   switch (activeBottomTab) {
-    case 'tutupanLahan':
-      if (activeLayers.has('tutupan_lahan') && tutupanLahanData.length > 0) {
-          return (
-            <div className="p-3">
-              <DataTable 
-                columns={['No', 'Kode Domain', 'Deskripsi Tutupan Lahan', 'Jumlah']}
-                data={tutupanLahanData.map((item, idx) => [
-                  (idx + 1).toString(),
-                  item.pl2024_id?.toString() || '-',
-                  item.deskripsi_domain || '-',
-                  item.count?.toString() || '0'
-                ])}
-              />
+    case 'listings':
+      if (kejadianListings.length > 0) {
+        return (
+          <div className="h-full overflow-y-auto">
+            <div className="grid grid-cols-1 gap-2 p-3">
+              {kejadianListings.map((kejadian, idx) => (
+                <div 
+                  key={idx} 
+                  className="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow cursor-pointer"
+                  onClick={() => {
+                    // Zoom to location on map
+                    if (mapInstanceRef.current && kejadian.latitude && kejadian.longitude) {
+                      mapInstanceRef.current.setView([kejadian.latitude, kejadian.longitude], 15);
+                    }
+                  }}
+                >
+                  <div className="flex gap-3">
+                    {/* Thumbnail */}
+                    {kejadian.thumbnail_path && (
+                      <div className="w-20 h-20 flex-shrink-0">
+                        <img 
+                          src={`${API_URL}${kejadian.thumbnail_path}`}
+                          alt={kejadian.title}
+                          className="w-full h-full object-cover rounded"
+                          onError={(e) => {
+                            e.currentTarget.src = 'https://via.placeholder.com/80?text=No+Image';
+                          }}
+                        />
+                      </div>
+                    )}
+                    
+                    {/* Content */}
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-sm font-semibold text-gray-800 mb-1 truncate">
+                        {kejadian.title}
+                      </h4>
+                      <div className="space-y-0.5 text-xs text-gray-600">
+                        <div className="flex items-center gap-1">
+                          <span className="font-medium">📍</span>
+                          <span className="truncate">{kejadian.location}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="font-medium">📅</span>
+                          <span>{new Date(kejadian.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="font-medium">🏷️</span>
+                          <span className="px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full text-[10px] font-medium">
+                            {kejadian.category}
+                          </span>
+                        </div>
+                        {kejadian.das && (
+                          <div className="flex items-center gap-1">
+                            <span className="font-medium">💧</span>
+                            <span className="text-blue-600">{kejadian.das}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Description preview */}
+                  {/* {kejadian.description && (
+                    <div className="mt-2 pt-2 border-t border-gray-100">
+                      <p className="text-xs text-gray-500 line-clamp-2">
+                        {kejadian.description}
+                      </p>
+                    </div>
+                  )} */}
+                </div>
+              ))}
             </div>
-          );
-        } else if (activeLayers.has('tutupan_lahan')) {
-          return (
-            <div className="p-3 flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">Tidak ada data tutupan lahan di area yang dipilih</p>
-              </div>
+          </div>
+        );
+      } else {
+        return (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center text-gray-400">
+              <p className="text-sm">Tidak ada data kejadian di area yang dipilih</p>
             </div>
-          );
-        }
-      break;
+          </div>
+        );
+      }
+
+   case 'tutupanLahan':
+  if (activeLayers.has('tutupan_lahan') && tutupanLahanData.length > 0) {
+    return (
+      <div className="p-3">
+        {/* TAMBAH INFO TOTAL */}
+        <div className="mb-2 text-sm text-gray-600">
+          Total: {tutupanLahanData.length} jenis tutupan lahan
+        </div>
+        
+        {/* TAMBAH max-height dan overflow-y-auto */}
+        <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '400px' }}>
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-white z-10">
+              <tr className="border-b border-gray-200">
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">No</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Warna Layer</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Deskripsi Tutupan Lahan</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Luas (Ha)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tutupanLahanData.map((item, idx) => (
+                <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                  <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
+                  <td className="py-2 px-2">
+                    <div 
+                      className="w-8 h-4 rounded border border-gray-300"
+                      style={{ backgroundColor: item.color }}
+                    ></div>
+                  </td>
+                  <td className="py-2 px-2 text-gray-700">{item.deskripsi_domain || '-'}</td>
+                  <td className="py-2 px-2 text-gray-700">
+                    {item.luas_total ? parseFloat(item.luas_total.toString()).toFixed(2) : '0'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  } else if (activeLayers.has('tutupan_lahan')) {
+    return (
+      <div className="p-3 flex items-center justify-center h-full">
+        <div className="text-center text-gray-500">
+          <p className="text-sm">Tidak ada data tutupan lahan di area yang dipilih</p>
+        </div>
+      </div>
+    );
+  }
+  break;
 
     case 'jenisTanah':
       if (activeLayers.has('jenis_tanah')) {
@@ -1987,23 +2505,58 @@ const fetchLayers = async () => {
       break;
 
     case 'geologi':
-      if (activeLayers.has('geologi')) {
-        return (
-          <div className="p-3">
-            <DataTable 
-              columns={['No', 'Jenis Batuan', 'Formasi', 'Umur']}
-              data={[
-                ['1', 'Andesit', 'Formasi Jampang', 'Miosen'],
-                ['2', 'Batupasir', 'Formasi Rajamandala', 'Miosen'],
-                ['3', 'Granit', 'Intrusi', 'Paleozoikum'],
-                ['4', 'Tufa', 'Formasi Tuff', 'Pliosen'],
-                ['5', 'Aluvium', 'Endapan Aluvial', 'Holosen'],
-              ]}
-            />
-          </div>
-        );
-      }
-      break;
+  if (activeLayers.has('geologi') && geologiData.length > 0) {
+    return (
+      <div className="p-3">
+        {/* TAMBAH INFO TOTAL */}
+        <div className="mb-2 text-sm text-gray-600">
+          Total: {geologiData.length} jenis batuan
+        </div>
+        
+        {/* TAMBAH max-height dan overflow-y-auto */}
+        <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '400px' }}>
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-white z-10">
+              <tr className="border-b border-gray-200">
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">No</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Warna Layer</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Jenis Batuan</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Umur Batuan</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Keliling (m)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {geologiData.map((item, idx) => (
+                <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                  <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
+                  <td className="py-2 px-2">
+                    <div 
+                      className="w-8 h-4 rounded border border-gray-300"
+                      style={{ backgroundColor: item.color }}
+                    ></div>
+                  </td>
+                  <td className="py-2 px-2 text-gray-700">{item.namobj || '-'}</td>
+                  <td className="py-2 px-2 text-gray-700">{item.umurobj || '-'}</td>
+                  <td className="py-2 px-2 text-gray-700">
+                    {item.keliling_total ? parseFloat(item.keliling_total.toString()).toFixed(2) : '0'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  } else if (activeLayers.has('geologi')) {
+    return (
+      <div className="p-3 flex items-center justify-center h-full">
+        <div className="text-center text-gray-500">
+          <p className="text-sm">Tidak ada data geologi di area yang dipilih</p>
+        </div>
+      </div>
+    );
+  }
+  break;
 
     default:
       return (
@@ -2501,17 +3054,56 @@ const fetchLayers = async () => {
         <input 
           type="checkbox" 
           className="w-3 h-3 flex-shrink-0" 
-          checked={activeLayers.has(layer.name)}
-          onChange={(e) => handleLayerToggle(layer.name, e.target.checked)}
+          checked={activeLayers.has(layer.isManual ? layer.name : layer.id)}
+          onChange={(e) => handleLayerToggle(
+            layer.isManual ? layer.name : layer.id, 
+            e.target.checked, 
+            layer.year, 
+            layer.category,
+            layer.isShapefile
+          )}
         />
         <span 
           className="text-xs flex-1 truncate cursor-help" 
-          title={`Kejadian Tahun ${layer.year}`}
+          title={layer.name}
         >
-          Kejadian {layer.year}
+          {layer.name}
         </span>
+        {layer.count && (
+          <span className="text-[10px] text-gray-400 flex-shrink-0">
+            ({layer.count})
+          </span>
+        )}
+        {/* Tombol delete hanya untuk layer manual upload */}
+        {layer.isManual && isAuthenticated && (
+          <button
+            onClick={() => {
+              setLayerToDelete({
+                section: 'kejadian',
+                id: layer.id,
+                name: layer.name
+              });
+              setShowDeleteModal(true);
+            }}
+            className="text-red-500 hover:text-red-700 font-bold text-base flex-shrink-0"
+            title="Hapus layer"
+          >
+            ×
+          </button>
+        )}
       </div>
     ))}
+    
+    {/* Tambah Data Button */}
+    {isAuthenticated && (
+      <button
+        onClick={() => handleAddClick('kejadian')}
+        className="flex items-center gap-1 px-2 py-1 border-2 border-dashed border-blue-400 text-blue-500 rounded hover:bg-blue-50 transition-colors justify-center"
+      >
+        <span className="text-base font-bold">+</span>
+        <span className="text-xs">Tambah Data</span>
+      </button>
+    )}
   </div>
   {(layerData.kejadian?.length === 0 || !layerData.kejadian) && (
     <div className="text-xs text-gray-500 italic mt-2">
@@ -2566,11 +3158,11 @@ const fetchLayers = async () => {
           <div className="w-80 bg-gray-50 border-l border-gray-300 flex flex-col" style={{ height: '35vh' }}>
             <div className="p-3 flex-shrink-0">
               <h3 className="text-sm font-semibold text-gray-800">Dokumentasi Foto Kejadian</h3>
-              {kejadianPhotos.length > 0 && (
+              {/* {kejadianPhotos.length > 0 && (
                 <p className="text-xs text-gray-600 mt-1">
                   {kejadianPhotos.length} foto dari kejadian yang ditampilkan
                 </p>
-              )}
+              )} */}
             </div>
             <div className="flex-1 overflow-y-auto px-3 pb-3">
               {kejadianPhotos.length > 0 ? (
@@ -2578,7 +3170,7 @@ const fetchLayers = async () => {
                   {kejadianPhotos.slice(0, 4).map((photo, idx) => (
                     <div 
                       key={idx} 
-                      className="relative w-full h-32 overflow-hidden rounded cursor-pointer shadow-sm"
+                      className="relative w-full h-22 overflow-hidden rounded cursor-pointer shadow-sm"
                       style={{ position: 'relative' }}
                     >
                       <img
