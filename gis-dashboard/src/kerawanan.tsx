@@ -582,11 +582,11 @@ const loadLayerInBounds = async (tableName: string, customBounds?: [[number, num
     console.log('✅ GeoJSON data received for', tableName, ':', geojsonData.features?.length || 0, 'features');
     
     // Tampilkan peringatan jika LIMIT tercapai
-    if (geojsonData.limitReached) {
-      console.warn(`⚠️ PERINGATAN: Layer ${tableName} mencapai batas maksimum 5000 features.`);
-      setLayerError(`⚠️ Layer "${tableName}" mencapai batas 5000 features. Zoom in untuk detail lebih lanjut.`);
-      setTimeout(() => setLayerError(''), 8000);
-    }
+    // if (geojsonData.limitReached) {
+    //   console.warn(`⚠️ PERINGATAN: Layer ${tableName} mencapai batas maksimum 5000 features.`);
+    //   setLayerError(`⚠️ Layer "${tableName}" mencapai batas 5000 features. Zoom in untuk detail lebih lanjut.`);
+    //   setTimeout(() => setLayerError(''), 8000);
+    // }
     
     // Hapus layer lama
     if (layerGroupsRef.current[tableName]) {

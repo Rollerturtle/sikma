@@ -11798,7 +11798,7 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
     let whereClause = 'WHERE l.geom IS NOT NULL';
     let fromClause = `FROM ${tableName} l`;
     let geometrySelect;
-    const FEATURE_LIMIT = 50000;
+    const FEATURE_LIMIT = 100000;
     
     // ================= Mulai perubahan/penambahan ================
     // 1. Cek DAS Filter dengan optimasi
