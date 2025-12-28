@@ -1853,11 +1853,11 @@ if (filteredForMarkers.length > 0 && !mapBounds) {
                               <span>⭐</span> Featured
                             </div>
                           )}
-                          <button onClick={(e) => e.stopPropagation()} className="absolute top-3 right-3 bg-white rounded-full p-2 hover:bg-gray-100">
+                          {/* <button onClick={(e) => e.stopPropagation()} className="absolute top-3 right-3 bg-white rounded-full p-2 hover:bg-gray-100">
                             <svg className="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
                               <path d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z"/>
                             </svg>
-                          </button>
+                          </button> */}
                           <div className="absolute bottom-3 left-3">
                             <span className="bg-red-500 text-white px-3 py-1 rounded text-xs font-semibold">
                               {incident.category}
@@ -1937,11 +1937,11 @@ if (filteredForMarkers.length > 0 && !mapBounds) {
                           </div>
                         </div>
                         <div className="p-6 flex items-center">
-                          <button onClick={(e) => e.stopPropagation()} className="bg-white rounded-full p-3 hover:bg-gray-100 border-2 border-gray-200">
+                          {/* <button onClick={(e) => e.stopPropagation()} className="bg-white rounded-full p-3 hover:bg-gray-100 border-2 border-gray-200">
                             <svg className="w-6 h-6 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
                               <path d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z"/>
                             </svg>
-                          </button>
+                          </button> */}
                         </div>
                       </div>
 

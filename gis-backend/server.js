@@ -9295,7 +9295,11 @@ app.get('/api/kejadian/list', async (req, res) => {
       paramCount++;
     }
 
-    query += ' ORDER BY date DESC, created_at DESC';
+    // ORDER BY: Featured first (DESC = true first), then by date DESC
+    query += ' ORDER BY featured DESC, date DESC, created_at DESC';
+
+    console.log('Kejadian list query:', query);
+    console.log('Query values:', values);
 
     const result = await client.query(query, values);
 
