@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {API_URL} from './api'; 
+import {API_URL} from './api';
 
 const Kebencanaan = () => {
   const mapRef = useRef(null);
@@ -46,6 +46,10 @@ const Kebencanaan = () => {
   latitude: '',
   curahHujan: null,
   isLoadingRainfall: false,
+  isLoadingLocation: false,
+  locationError: '',
+  dasError: '',
+  rainfallError: '',
   featured: true
 });
 
@@ -57,6 +61,8 @@ const [isLoadingDas, setIsLoadingDas] = useState(false);
       if (!lat || !lon) return;
       
       try {
+        setFormData(prev => ({ ...prev, isLoadingLocation: true, locationError: '' }));
+        
         const response = await fetch(
           `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1&accept-language=id`,
           {
@@ -77,7 +83,7 @@ const [isLoadingDas, setIsLoadingDas] = useState(false);
             .filter(Boolean)
             .join(', ');
           
-          setFormData(prev => ({ ...prev, lokasi }));
+          setFormData(prev => ({ ...prev, lokasi, isLoadingLocation: false }));
           
           // Fetch DAS berdasarkan koordinat
           await fetchDasByCoordinates(lon, lat);
@@ -86,9 +92,20 @@ const [isLoadingDas, setIsLoadingDas] = useState(false);
           if (formData.incidentDate) {
             await fetchRainfallData(lat, lon, formData.incidentDate);
           }
+        } else {
+          setFormData(prev => ({ 
+            ...prev, 
+            isLoadingLocation: false,
+            locationError: 'Tidak dapat menemukan lokasi untuk koordinat ini'
+          }));
         }
       } catch (error) {
         console.error('Reverse geocoding error:', error);
+        setFormData(prev => ({ 
+          ...prev, 
+          isLoadingLocation: false,
+          locationError: 'Error mengambil data lokasi'
+        }));
       }
     };
 
@@ -110,6 +127,7 @@ const fetchDasByCoordinates = async (longitude: number, latitude: number) => {
   
   try {
     setIsLoadingDas(true);
+    setFormData(prev => ({ ...prev, dasError: '' }));
     
     const response = await fetch(
       `${API_URL}/api/das/by-coordinates?longitude=${longitude}&latitude=${latitude}`
@@ -123,15 +141,27 @@ const fetchDasByCoordinates = async (longitude: number, latitude: number) => {
       
       if (data.isNearest) {
         console.log('Note: Using nearest DAS (point outside all DAS polygons)');
+        setFormData(prev => ({ 
+          ...prev, 
+          dasError: 'Menggunakan DAS terdekat (koordinat di luar area DAS)'
+        }));
       }
     } else {
       console.log('No DAS found for coordinates');
-      setFormData(prev => ({ ...prev, das: '' }));
+      setFormData(prev => ({ 
+        ...prev, 
+        das: '',
+        dasError: 'Tidak dapat menemukan DAS untuk koordinat ini'
+      }));
     }
     
   } catch (error) {
     console.error('Error fetching DAS by coordinates:', error);
-    setFormData(prev => ({ ...prev, das: '' }));
+    setFormData(prev => ({ 
+      ...prev, 
+      das: '',
+      dasError: 'Error mengambil data DAS'
+    }));
   } finally {
     setIsLoadingDas(false);
   }
@@ -288,7 +318,7 @@ const fetchDasByCoordinates = async (longitude: number, latitude: number) => {
     }
     
     try {
-      setFormData(prev => ({ ...prev, isLoadingRainfall: true }));
+      setFormData(prev => ({ ...prev, isLoadingRainfall: true, rainfallError: '' }));
       
       console.log('Fetching rainfall data for:', { latitude, longitude, date });
       
@@ -308,7 +338,8 @@ const fetchDasByCoordinates = async (longitude: number, latitude: number) => {
         setFormData(prev => ({ 
           ...prev, 
           curahHujan: data.rainfall,
-          isLoadingRainfall: false
+          isLoadingRainfall: false,
+          rainfallError: ''
         }));
         
         // Show notification
@@ -323,7 +354,8 @@ const fetchDasByCoordinates = async (longitude: number, latitude: number) => {
       setFormData(prev => ({ 
         ...prev, 
         curahHujan: null,
-        isLoadingRainfall: false
+        isLoadingRainfall: false,
+        rainfallError: 'Error mengambil data curah hujan'
       }));
     }
   };
@@ -2261,18 +2293,38 @@ if (filteredForMarkers.length > 0 && !mapBounds) {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Lokasi
-                {formData.lokasi && (
-                  <span className="ml-2 text-xs text-green-600">(Auto-filled dari koordinat)</span>
-                )}
               </label>
-              <input
-                type="text"
-                name="lokasi"
-                value={formData.lokasi}
-                onChange={handleModalInputChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Akan terisi otomatis dari koordinat, atau ketik manual"
-              />
+              <div className="relative">
+                <input
+                  type="text"
+                  name="lokasi"
+                  value={formData.lokasi}
+                  onChange={handleModalInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Akan terisi otomatis dari koordinat, atau ketik manual"
+                  disabled={formData.isLoadingLocation}
+                />
+                {formData.isLoadingLocation && (
+                  <div className="absolute right-3 top-2.5">
+                    <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+                  </div>
+                )}
+              </div>
+              {formData.isLoadingLocation && (
+                <p className="text-xs text-blue-600 mt-1">
+                  ⏳ Mengambil data lokasi...
+                </p>
+              )}
+              {formData.locationError && (
+                <p className="text-xs text-red-600 mt-1">
+                  ❌ {formData.locationError}
+                </p>
+              )}
+              {formData.lokasi && !formData.isLoadingLocation && !formData.locationError && (
+                <p className="text-xs text-green-600 mt-1">
+                  ✅ Lokasi terisi otomatis dari koordinat
+                </p>
+              )}
             </div>
 
             {/* Disaster Type & DAS */}
@@ -2292,7 +2344,6 @@ if (filteredForMarkers.length > 0 && !mapBounds) {
                   <option value="Banjir">Banjir</option>
                   <option value="Tanah Longsor dan Erosi">Tanah Longsor dan Erosi</option>
                   <option value="Kebakaran Hutan dan Kekeringan">Kebakaran Hutan dan Kekeringan</option>
-                  <option value="Gempa Bumi">Gempa Bumi</option>
                 </select>
               </div>
 
@@ -2301,17 +2352,36 @@ if (filteredForMarkers.length > 0 && !mapBounds) {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   DAS
                 </label>
-                <input
-                  type="text"
-                  value={formData.das}
-                  onChange={(e) => setFormData(prev => ({ ...prev, das: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="DAS akan terisi otomatis berdasarkan koordinat"
-                  disabled={isLoadingDas}
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  DAS terisi otomatis dari koordinat, tetapi dapat diedit manual
-                </p>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={formData.das}
+                    onChange={(e) => setFormData(prev => ({ ...prev, das: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="DAS akan terisi otomatis berdasarkan koordinat"
+                    disabled={isLoadingDas}
+                  />
+                  {isLoadingDas && (
+                    <div className="absolute right-3 top-2.5">
+                      <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+                    </div>
+                  )}
+                </div>
+                {isLoadingDas && (
+                  <p className="text-xs text-blue-600 mt-1">
+                    ⏳ Mengambil data DAS...
+                  </p>
+                )}
+                {formData.dasError && (
+                  <p className="text-xs text-yellow-600 mt-1">
+                    ⚠️ {formData.dasError}
+                  </p>
+                )}
+                {formData.das && !isLoadingDas && !formData.dasError && (
+                  <p className="text-xs text-green-600 mt-1">
+                    ✅ DAS terisi otomatis dari koordinat
+                  </p>
+                )}
               </div>
             </div>
             
@@ -2339,10 +2409,22 @@ if (filteredForMarkers.length > 0 && !mapBounds) {
                   </div>
                 )}
               </div>
-              <p className="text-xs text-gray-500 mt-1">
-                Data curah hujan akan diambil otomatis berdasarkan lokasi dan tanggal kejadian
-              </p>
-              {formData.curahHujan !== null && formData.curahHujan === 0 && (
+              {formData.isLoadingRainfall && (
+                <p className="text-xs text-blue-600 mt-1">
+                  ⏳ Mengambil data curah hujan...
+                </p>
+              )}
+              {formData.rainfallError && (
+                <p className="text-xs text-red-600 mt-1">
+                  ❌ {formData.rainfallError}
+                </p>
+              )}
+              {formData.curahHujan !== null && formData.curahHujan > 0 && !formData.isLoadingRainfall && !formData.rainfallError && (
+                <p className="text-xs text-green-600 mt-1">
+                  ✅ Data curah hujan: {formData.curahHujan} mm
+                </p>
+              )}
+              {formData.curahHujan !== null && formData.curahHujan === 0 && !formData.isLoadingRainfall && (
                 <p className="text-xs text-yellow-600 mt-1">
                   ⚠️ Tidak ada data curah hujan untuk tanggal ini
                 </p>

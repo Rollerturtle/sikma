@@ -14,12 +14,33 @@ export default function DetailKejadianBencana() {
   const [tutupanLahanData, setTutupanLahanData] = useState([]);
   const [dasGeometry, setDasGeometry] = useState(null);
   const [kerawananData, setKerawananData] = useState([]);
+  const [kerawananLayers, setKerawananLayers] = useState({});
+  const [visibleLayers, setVisibleLayers] = useState({});
+  const [isLoadingLayers, setIsLoadingLayers] = useState(false);
+  const [loadingSpecificLayers, setLoadingSpecificLayers] = useState<Set<string>>(new Set());
+  const [layerColors, setLayerColors] = useState({});
+  const [tutupanLahanLayer, setTutupanLahanLayer] = useState(null);
+  const [tutupanLahanVisible, setTutupanLahanVisible] = useState(false);
+  const [tutupanLahanColors, setTutupanLahanColors] = useState({});
+  const [kerawananDataColors, setKerawananDataColors] = useState({});
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   
   const overviewRef = useRef(null);
   const galleryRef = useRef(null);
   const locationRef = useRef(null);
+
+  const formatDasName = (dasName: string): string => {
+    if (!dasName) return '';
+    
+    // Split by space untuk handle multi-word
+    return dasName
+      .toLowerCase()
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  };
+
 
   // Extract province from location (after comma)
   const getProvince = (locationStr) => {
@@ -53,12 +74,11 @@ export default function DetailKejadianBencana() {
 
   // Function untuk fetch data kerawanan berdasarkan kategori
   const fetchKerawananData = async () => {
-    if (!incidentData?.coordinates || !incidentData?.category) return;
+    if (!incidentData?.das || !incidentData?.category) return;
     
     try {
-      const [lat, lon] = incidentData.coordinates;
       const response = await fetch(
-        `${API_URL}/api/kerawanan/by-coordinates?longitude=${lon}&latitude=${lat}&category=${encodeURIComponent(incidentData.category)}`
+        `${API_URL}/api/kerawanan/by-das?das=${encodeURIComponent(incidentData.das)}&category=${encodeURIComponent(incidentData.category)}`
       );
       
       if (!response.ok) {
@@ -67,9 +87,9 @@ export default function DetailKejadianBencana() {
       
       const data = await response.json();
       
-      if (data.success && data.data) {
-        setKerawananData(data.data);
+      if (data.success) {
         console.log('Kerawanan data:', data.data);
+        setKerawananData(data.data);
       }
     } catch (error) {
       console.error('Error fetching kerawanan data:', error);
@@ -79,12 +99,12 @@ export default function DetailKejadianBencana() {
 
   // Function untuk fetch tutupan lahan data
   const fetchTutupanLahanData = async () => {
-    if (!incidentData?.coordinates) return;
+    if (!incidentData?.das) return;
     
     try {
-      const [lat, lon] = incidentData.coordinates;
+      // Gunakan DAS untuk agregasi (bukan koordinat)
       const response = await fetch(
-        `${API_URL}/api/tutupan-lahan/by-coordinates?longitude=${lon}&latitude=${lat}`
+        `${API_URL}/api/tutupan-lahan/by-das?das=${encodeURIComponent(incidentData.das)}`
       );
       
       if (!response.ok) {
@@ -94,40 +114,101 @@ export default function DetailKejadianBencana() {
       const data = await response.json();
       
       if (data.success && data.data) {
+        console.log('📊 Chart data pl2024_ids:', data.data.map(d => d.pl2024_id));
+        console.log('📊 Chart data:', data.data);
+        
         setTutupanLahanData(data.data);
-        console.log('Tutupan lahan data:', data.data);
       }
     } catch (error) {
-      console.error('Error fetching tutupan lahan:', error);
+      console.error('Error fetching tutupan lahan data:', error);
       setTutupanLahanData([]);
     }
   };
 
   // Function untuk fetch DAS geometry
 const fetchDasGeometry = async () => {
-  if (!incidentData?.coordinates) return;
-  
-  try {
-    const [lat, lon] = incidentData.coordinates;
-    const response = await fetch(
-      `${API_URL}/api/das/geometry-by-coordinates?longitude=${lon}&latitude=${lat}`
-    );
+    if (!incidentData?.das) return;
     
-    if (!response.ok) {
-      throw new Error('Failed to fetch DAS geometry');
+    try {
+      // Gunakan nama DAS dari incidentData, bukan koordinat
+      const response = await fetch(
+        `${API_URL}/api/das/geometry-by-name?dasName=${encodeURIComponent(incidentData.das)}`
+      );
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch DAS geometry');
+      }
+      
+      const data = await response.json();
+      
+      if (data.success && data.geom) {
+        setDasGeometry(data.geom);
+        console.log('DAS geometry loaded:', incidentData.das);
+      }
+    } catch (error) {
+      console.error('Error fetching DAS geometry:', error);
+      setDasGeometry(null);
     }
+  };
+
+  const fetchTutupanLahanLayer = async () => {
+    if (!incidentData?.das) return;
     
-    const data = await response.json();
+    setIsLoadingLayers(true);
     
-    if (data.success && data.geom) {
-      setDasGeometry(data.geom); // data.geom sudah dalam format GeoJSON object
-      console.log('DAS geometry loaded:', data.dasName);
+    try {
+      const dasFilter = JSON.stringify([incidentData.das]);
+      const bounds = '-11,95,6,141';
+      const zoom = 13;
+      
+      const url = `${API_URL}/api/layers/tutupan_lahan/geojson?bounds=${bounds}&zoom=${zoom}&dasFilter=${encodeURIComponent(dasFilter)}`;
+      
+      console.log('Fetching tutupan_lahan layer with DAS filter:', incidentData.das);
+      
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch tutupan_lahan layer');
+      }
+      
+      const data = await response.json();
+      
+      if (data.features && data.features.length > 0) {
+        // Generate colors untuk setiap unique pl2024_id, gunakan index yang konsisten
+        const uniquePl2024Ids = Array.from(new Set(
+          data.features.map(f => f.properties.pl2024_id)
+        )).sort((a, b) => a - b); // Sort numerically
+        
+        console.log('🎨 Unique pl2024_ids from layer:', uniquePl2024Ids);
+        
+        const colors = {};
+        uniquePl2024Ids.forEach((pl2024_id, idx) => {
+          const color = getBarColor(idx);
+          colors[pl2024_id] = color;
+          console.log(`  pl2024_id ${pl2024_id} → ${color} (index ${idx})`);
+        });
+        
+        console.log('Generated colors:', colors);
+        
+        // SET COLORS DULU sebelum set layer dan fetch data
+        setTutupanLahanColors(colors);
+        
+        // Tunggu sebentar agar state colors ter-update
+        setTimeout(() => {
+          setTutupanLahanLayer(data);
+          console.log('Tutupan lahan layer loaded:', data.features.length, 'features');
+          
+          // SETELAH colors dan layer di-set, fetch data untuk chart
+          fetchTutupanLahanData();
+        }, 0);
+      }
+    } catch (error) {
+      console.error('Error fetching tutupan lahan layer:', error);
+      setTutupanLahanLayer(null);
+    } finally {
+      setIsLoadingLayers(false);
     }
-  } catch (error) {
-    console.error('Error fetching DAS geometry:', error);
-    setDasGeometry(null);
-  }
-};
+  };
 
   // Helper function untuk menentukan warna dan label curah hujan
   const getRainfallColorAndLabel = (rainfall) => {
@@ -147,8 +228,12 @@ const fetchDasGeometry = async () => {
   };
 
   // Generate random colors for tutupan lahan bars
-  const getBarColor = (index) => {
-    const colors = ['#EC4899', '#3B82F6', '#F59E0B', '#14B8A6', '#A855F7', '#EF4444', '#10B981'];
+  const getBarColor = (index: number) => {
+    const colors = [
+      '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8',
+      '#F7DC6F', '#BB8FCE', '#85C1E2', '#F8B739', '#52B788',
+      '#E63946', '#A8DADC', '#457B9D', '#F1FAEE', '#E76F51'
+    ];
     return colors[index % colors.length];
   };
 
@@ -179,6 +264,168 @@ const fetchDasGeometry = async () => {
       return ['Tingkat Kerawanan', 'Luas Wilayah (Ton/Ha)'];
     }
     return ['Kelas', 'Luas'];
+  };
+
+  // Warna untuk layer kerawanan (mirip dengan geologi)
+  const kerawananColors = {
+    'Sangat Tinggi': '#FF0000',
+    'Tinggi': '#FF4500',
+    'Sedang': '#FFA500',
+    'Menengah': '#FFA500',
+    'Rendah': '#FFFF00',
+    'Sangat Rendah': '#90EE90',
+    'Normal': '#00FF00',
+    'Ekstrim': '#8B0000'
+  };
+
+const fetchKerawananLayers = async () => {
+    if (!incidentData?.category || !incidentData?.das) return;
+    
+    setIsLoadingLayers(true);
+    
+    try {
+      console.log('=== DEBUG fetchKerawananLayers ===');
+      console.log('incidentData.das:', incidentData.das);
+      
+      // Tentukan table names berdasarkan category
+      let tableNames: string[] = [];
+      
+      if (incidentData.category === 'Banjir') {
+        tableNames = ['rawan_limpasan'];
+      } else if (incidentData.category === 'Kebakaran Hutan dan Kekeringan') {
+        tableNames = ['rawan_karhutla'];
+      } else if (incidentData.category === 'Tanah Longsor dan Erosi') {
+        tableNames = ['rawan_erosi', 'rawan_longsor'];
+      }
+      
+      // Set loading untuk semua layers
+      setLoadingSpecificLayers(new Set(tableNames));
+      
+      const results: any = {};
+      const allTingkatValues = new Set<string>();
+      
+      // Fetch setiap layer
+      for (const tableName of tableNames) {
+        const dasFilter = JSON.stringify([incidentData.das]);
+        const bounds = '-11,95,6,141';
+        const zoom = 13;
+        
+        const url = `${API_URL}/api/layers/${tableName}/geojson?bounds=${bounds}&zoom=${zoom}&dasFilter=${encodeURIComponent(dasFilter)}`;
+        
+        console.log(`Fetching ${tableName}`);
+        
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+          console.error(`Failed to fetch ${tableName}:`, response.status, response.statusText);
+          // Remove dari loading set meskipun gagal
+          setLoadingSpecificLayers(prev => {
+            const next = new Set(prev);
+            next.delete(tableName);
+            return next;
+          });
+          continue;
+        }
+        
+        const data = await response.json();
+        results[tableName] = data;
+        
+        // Remove dari loading set setelah berhasil
+        setLoadingSpecificLayers(prev => {
+          const next = new Set(prev);
+          next.delete(tableName);
+          return next;
+        });
+        
+        // Collect semua unique tingkat values
+        data.features?.forEach((feature: any) => {
+          const tingkat = feature.properties.tingkat || 
+                         feature.properties.limpasan || 
+                         feature.properties.kelas || 
+                         feature.properties.unsur;
+          
+          if (tingkat) {
+            allTingkatValues.add(tingkat);
+          }
+          
+          // Handle rawan_erosi yang punya kls_a
+          if (!tingkat && feature.properties.kls_a) {
+            const kls_a = feature.properties.kls_a;
+            let convertedTingkat = '';
+            if (kls_a === '>480') {
+              convertedTingkat = 'Sangat Tinggi';
+            } else if (/^[0-9]+\.?[0-9]*$/.test(kls_a)) {
+              const nilai = parseFloat(kls_a);
+              if (nilai <= 15) convertedTingkat = 'Sangat Rendah';
+              else if (nilai <= 60) convertedTingkat = 'Rendah';
+              else if (nilai <= 180) convertedTingkat = 'Sedang';
+              else if (nilai <= 480) convertedTingkat = 'Tinggi';
+              else convertedTingkat = 'Sangat Tinggi';
+            }
+            if (convertedTingkat) {
+              allTingkatValues.add(convertedTingkat);
+            }
+          }
+        });
+        
+        console.log(`${tableName}: ${data.features?.length || 0} features (clipped)`);
+      }
+      
+      // Generate colors untuk kerawanan data
+      const dataColors = {};
+      Array.from(allTingkatValues).forEach(tingkat => {
+        dataColors[tingkat] = kerawananColors[tingkat] || '#808080';
+      });
+      
+      setKerawananDataColors(dataColors);
+      console.log('🎨 Kerawanan data colors:', dataColors);
+      
+      setKerawananLayers(results);
+      
+      // Set default visible state
+      const defaultVisible: any = {};
+      Object.keys(results).forEach(layerName => {
+        defaultVisible[layerName] = true;
+      });
+      setVisibleLayers(defaultVisible);
+      
+      console.log('Kerawanan layers loaded:', results);
+      
+      // SETELAH layers loaded dan colors generated, fetch data agregat untuk tabel
+      fetchKerawananData();
+      
+    } catch (error) {
+      console.error('Error fetching kerawanan layers:', error);
+      setKerawananLayers({});
+      setLoadingSpecificLayers(new Set());
+    } finally {
+      setIsLoadingLayers(false);
+    }
+  };
+
+  // Function untuk toggle layer visibility
+  const toggleLayerVisibility = (layerName) => {
+    // Jika layer belum di-load, jangan toggle
+    if (!kerawananLayers[layerName]) {
+      console.warn(`Layer ${layerName} belum loaded, tidak bisa toggle`);
+      return;
+    }
+    
+    setVisibleLayers(prev => ({
+      ...prev,
+      [layerName]: !prev[layerName]
+    }));
+  };
+
+  // Function untuk get layer label
+  const getLayerLabel = (layerName) => {
+    const labels = {
+      'rawan_limpasan': 'Rawan Limpasan (Banjir)',
+      'rawan_karhutla': 'Rawan Karhutla',
+      'rawan_erosi': 'Rawan Erosi',
+      'rawan_longsor': 'Rawan Longsor'
+    };
+    return labels[layerName] || layerName;
   };
 
   // Initialize Leaflet map and fetch data
@@ -259,17 +506,28 @@ useEffect(() => {
   };
 }, [incidentData]); // HAPUS dasGeometry dari dependency!
 
-// Separate useEffect untuk render DAS layer ketika dasGeometry tersedia
 useEffect(() => {
-  if (dasGeometry && mapInstanceRef.current && window.L) {
+    if (incidentData && incidentData.coordinates) {
+      fetchDasGeometry();
+      fetchKerawananLayers();
+      fetchTutupanLahanLayer();
+      // fetchKerawananData();
+      // fetchTutupanLahanData();
+    }
+  }, [incidentData]);
+
+// Separate useEffect untuk render DAS layer dan kerawanan layers
+useEffect(() => {
+  if (!mapInstanceRef.current || !window.L) return;
+  
+  // Render DAS layer
+  if (dasGeometry) {
     console.log('Adding DAS layer to map');
     
-    // Hapus layer DAS lama jika ada
     if (mapInstanceRef.current._dasLayer) {
       mapInstanceRef.current.removeLayer(mapInstanceRef.current._dasLayer);
     }
     
-    // Tambah layer DAS baru
     const dasLayer = window.L.geoJSON(dasGeometry, {
       style: {
         color: '#3b82f6',
@@ -280,10 +538,94 @@ useEffect(() => {
       }
     }).addTo(mapInstanceRef.current);
     
-    // Simpan reference untuk cleanup nanti
     mapInstanceRef.current._dasLayer = dasLayer;
   }
-}, [dasGeometry]);
+  
+  // Render tutupan lahan layer
+  if (mapInstanceRef.current._tutupanLahanLayer) {
+    mapInstanceRef.current.removeLayer(mapInstanceRef.current._tutupanLahanLayer);
+  }
+  
+  if (tutupanLahanVisible && tutupanLahanLayer && tutupanLahanLayer.features) {
+    const layer = window.L.geoJSON(tutupanLahanLayer, {
+      // SKIP Point geometry - hanya render Polygon
+      filter: function(feature) {
+        return feature.geometry && (
+          feature.geometry.type === 'Polygon' || 
+          feature.geometry.type === 'MultiPolygon'
+        );
+      },
+      style: (feature) => {
+        const pl2024_id = feature.properties.pl2024_id;
+        const color = tutupanLahanColors[pl2024_id] || '#808080';
+        
+        return {
+          color: color,
+          weight: 1,
+          opacity: 0.8,
+          fillColor: color,
+          fillOpacity: 0.4
+        };
+      }
+    }).addTo(mapInstanceRef.current);
+    
+    mapInstanceRef.current._tutupanLahanLayer = layer;
+  }
+  
+  // Render kerawanan layers
+  Object.keys(kerawananLayers).forEach(layerName => {
+    if (mapInstanceRef.current[`_${layerName}_layer`]) {
+      mapInstanceRef.current.removeLayer(mapInstanceRef.current[`_${layerName}_layer`]);
+    }
+    
+    if (visibleLayers[layerName] && kerawananLayers[layerName]) {
+      const layer = window.L.geoJSON(kerawananLayers[layerName], {
+        // SKIP Point geometry - hanya render Polygon
+        filter: function(feature) {
+          return feature.geometry && (
+            feature.geometry.type === 'Polygon' || 
+            feature.geometry.type === 'MultiPolygon'
+          );
+        },
+        style: (feature) => {
+          let tingkat = feature.properties.tingkat || 
+                       feature.properties.limpasan || 
+                       feature.properties.kelas || 
+                       feature.properties.unsur;
+          
+          // Special handling untuk rawan_erosi yang masih punya kls_a
+          if (!tingkat && feature.properties.kls_a) {
+            const kls_a = feature.properties.kls_a;
+            if (kls_a === '>480') {
+              tingkat = 'Sangat Tinggi';
+            } else if (/^[0-9]+\.?[0-9]*$/.test(kls_a)) {
+              const nilai = parseFloat(kls_a);
+              if (nilai <= 15) tingkat = 'Sangat Rendah';
+              else if (nilai <= 60) tingkat = 'Rendah';
+              else if (nilai <= 180) tingkat = 'Sedang';
+              else if (nilai <= 480) tingkat = 'Tinggi';
+              else tingkat = 'Sangat Tinggi';
+            } else {
+              tingkat = 'Sangat Tinggi';
+            }
+          }
+          
+          const color = kerawananColors[tingkat] || '#808080';
+          
+          return {
+            color: color,
+            weight: 1,
+            opacity: 0.8,
+            fillColor: color,
+            fillOpacity: 0.3
+          };
+        }
+      }).addTo(mapInstanceRef.current);
+      
+      mapInstanceRef.current[`_${layerName}_layer`] = layer;
+    }
+  });
+}, [dasGeometry, kerawananLayers, visibleLayers, tutupanLahanLayer, tutupanLahanVisible, tutupanLahanColors]);
 
 // Tambahkan di awal component untuk debug
 useEffect(() => {
@@ -326,6 +668,16 @@ useEffect(() => {
       </style>
       <div className="min-h-screen bg-gray-50">
         <div className="max-w-7xl mx-auto px-6 py-6">
+          {/* Back Button */}
+          <button
+            onClick={() => navigate('/kebencanaan')}
+            className="flex items-center gap-2 mb-4 text-gray-600 hover:text-gray-800 transition-colors"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+            <span className="text-sm font-medium">Kembali ke Halaman Kejadian</span>
+          </button>
           <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
             <div className="flex items-center gap-3 mb-4">
               <span className="text-sm text-red-500 bg-red-50 px-3 py-1 rounded-full">{incidentData.category}</span>
@@ -340,7 +692,7 @@ useEffect(() => {
               {/* DAS tag */}
               {incidentData?.das && (
                 <span className="text-sm text-red-500 bg-red-50 px-3 py-1 rounded-full">
-                  {incidentData.das}
+                  {formatDasName(incidentData.das)}
                 </span>
               )}
             </div>
@@ -430,7 +782,7 @@ useEffect(() => {
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-                        <span className="text-sm text-gray-700">{incidentData.das}</span>
+                        <span className="text-sm text-gray-700">{formatDasName(incidentData.das)}</span>
                       </div>
                     </div>
                   </div>
@@ -487,6 +839,76 @@ useEffect(() => {
                 <div className="bg-white rounded-lg shadow-sm p-6">
                   <h3 className="text-lg font-medium text-gray-800 mb-4">Informasi Kondisi Lokasi</h3>
                   
+                  {/* Layer Toggle Controls */}
+                  <div className="mb-6">
+                    <h4 className="text-sm font-medium text-gray-700 mb-2">Layer Kerawanan</h4>
+                    <div>
+
+                      {/* Tutupan Lahan Toggle */}
+                      <div className="flex items-center justify-between py-1 mb-2">
+                        <span className="text-xs text-gray-700 flex items-center gap-1">
+                          {isLoadingLayers && (
+                            <span className="inline-block animate-spin">⏳</span>
+                          )}
+                          Tutupan Lahan
+                        </span>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={tutupanLahanVisible}
+                            onChange={() => setTutupanLahanVisible(!tutupanLahanVisible)}
+                            disabled={isLoadingLayers || !tutupanLahanLayer}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600 peer-disabled:opacity-50 peer-disabled:cursor-not-allowed"></div>
+                        </label>
+                      </div>
+                      
+                      {/* Kerawanan Layers - Selalu tampilkan berdasarkan category */}
+{(() => {
+  let layerNames: string[] = [];
+  
+  if (incidentData.category === 'Banjir') {
+    layerNames = ['rawan_limpasan'];
+  } else if (incidentData.category === 'Kebakaran Hutan dan Kekeringan') {
+    layerNames = ['rawan_karhutla'];
+  } else if (incidentData.category === 'Tanah Longsor dan Erosi') {
+    layerNames = ['rawan_erosi', 'rawan_longsor'];
+  }
+  
+  return (
+    <div className="space-y-2">
+      {layerNames.map(layerName => {
+        const isLayerLoading = loadingSpecificLayers.has(layerName);
+        const isLayerLoaded = !!kerawananLayers[layerName];
+        
+        return (
+          <div key={layerName} className="flex items-center justify-between py-1">
+            <span className="text-xs text-gray-700 flex items-center gap-1">
+              {isLayerLoading && (
+                <span className="inline-block animate-spin">⏳</span>
+              )}
+              {getLayerLabel(layerName)}
+            </span>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={visibleLayers[layerName] || false}
+                onChange={() => toggleLayerVisibility(layerName)}
+                disabled={isLayerLoading || !isLayerLoaded}
+                className="sr-only peer"
+              />
+              <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600 peer-disabled:opacity-50 peer-disabled:cursor-not-allowed"></div>
+            </label>
+          </div>
+        );
+      })}
+    </div>
+  );
+})()}
+                    </div>
+                  </div>
+
                   <div className="mb-6">
                     <h4 className="text-sm font-medium text-gray-700 mb-3">Data Curah Hujan</h4>
                     {incidentData?.curah_hujan !== undefined && incidentData?.curah_hujan !== null ? (
@@ -526,75 +948,143 @@ useEffect(() => {
                   <div className="mb-6">
                     <h4 className="text-sm font-medium text-gray-700 mb-3">Data Tutupan Lahan</h4>
                     {tutupanLahanData.length > 0 ? (
-                      <div>
-                        <div className="flex gap-2 h-32 items-end">
-                          {tutupanLahanData.slice(0, 7).map((item, index) => {
-                            const maxCount = Math.max(...tutupanLahanData.map(d => d.count));
-                            const height = (item.count / maxCount) * 100;
-                            
-                            return (
-                              <div 
-                                key={index}
-                                className="flex-1 rounded-t relative group cursor-pointer"
-                                style={{
-                                  height: `${height}%`,
-                                  backgroundColor: getBarColor(index),
-                                  minHeight: '20%'
-                                }}
-                                title={`${item.deskripsi_domain}: ${item.count}`}
-                              >
-                                {/* Tooltip on hover */}
-                                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
-                                  <div className="font-semibold">{item.deskripsi_domain}</div>
-                                  <div className="text-xs">Jumlah: {item.count}</div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                        <p className="text-xs text-gray-500 mt-2 text-center">
-                          Hover untuk melihat detail tutupan lahan
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="text-center text-gray-400 py-8">
-                        <p className="text-sm">Tidak ada data tutupan lahan</p>
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-  <h4 className="text-sm font-medium text-gray-700 mb-3">{getKerawananTableTitle()}</h4>
-  {kerawananData.length > 0 ? (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b border-gray-200">
-            {getKerawananTableHeaders().map((header, idx) => (
-              <th key={idx} className="text-left py-2 px-2 font-medium text-gray-600">
-                {header}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {kerawananData.map((item, idx) => (
-            <tr key={idx} className="border-b border-gray-100">
-              <td className="py-2 px-2 text-gray-700">{item.tingkat}</td>
-              <td className="py-2 px-2 text-gray-700">
-                {parseFloat(item.luas_total).toFixed(2)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div>
+      <div className="flex gap-2 h-32 items-end">
+        {tutupanLahanData.map((item, index) => {
+  const maxLuas = Math.max(...tutupanLahanData.map(d => parseFloat(d.total_luas_ha || 0)));
+  const luasValue = parseFloat(item.total_luas_ha || 0);
+  const height = maxLuas > 0 ? (luasValue / maxLuas) * 100 : 0;
+  
+  // Get color from tutupanLahanColors
+  const barColor = tutupanLahanColors[item.pl2024_id] || getBarColor(index);
+  
+  console.log(`📊 Bar ${index}: pl2024_id=${item.pl2024_id}, color=${barColor}, deskripsi=${item.deskripsi_domain}`);
+  
+  return (
+    <div 
+      key={index}
+      className="flex-1 rounded-t relative group cursor-pointer"
+      style={{
+        height: `${height}%`,
+        backgroundColor: barColor,
+        minHeight: '20%'
+      }}
+    >
+      {/* Tooltip on hover */}
+      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
+        <div className="font-semibold">{item.deskripsi_domain || `Kode: ${item.pl2024_id}` || 'Unknown'}</div>
+        <div className="text-xs">Luas: {luasValue.toFixed(2)} Ha</div>
+      </div>
+    </div>
+  );
+})}
+      </div>
+      <p className="text-xs text-gray-500 mt-3 text-center">
+        Hover untuk melihat detail tutupan lahan
+      </p>
     </div>
   ) : (
-    <div className="text-center text-gray-400 py-4">
-      <p className="text-xs">Tidak ada data kerawanan</p>
+    <div className="text-center text-gray-400 py-8">
+      <p className="text-sm">Tidak ada data tutupan lahan</p>
     </div>
   )}
-</div>
+                  </div>
+
+                  {/* Tabel Rawan Longsor */}
+                    {incidentData.category === 'Tanah Longsor dan Erosi' && kerawananData.filter(item => item.type === 'longsor').length > 0 && (
+                      <div className="mt-6">
+                        <h4 className="text-sm font-medium text-gray-700 mb-3">Data Rawan Longsor</h4>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="border-b border-gray-200">
+                                <th className="text-left py-2 px-2 font-medium text-gray-600">
+                                  Warna
+                                </th>
+                                <th className="text-left py-2 px-2 font-medium text-gray-600">
+                                  Tingkat Kerawanan
+                                </th>
+                                <th className="text-left py-2 px-2 font-medium text-gray-600">
+                                  Luas Wilayah (Ton/Ha)
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {kerawananData.filter(item => item.type === 'longsor').map((item, idx) => (
+                                <tr key={idx} className="border-b border-gray-100">
+                                  <td className="py-2 px-2">
+                                    <div 
+                                      className="w-8 h-4 rounded border border-gray-300"
+                                      style={{ backgroundColor: kerawananDataColors[item.tingkat] || kerawananColors[item.tingkat] || '#808080' }}
+                                    ></div>
+                                  </td>
+                                  <td className="py-2 px-2 text-gray-700">{item.tingkat}</td>
+                                  <td className="py-2 px-2 text-gray-700">{parseFloat(item.luas_total).toFixed(2)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+      {/* Tabel Kerawanan - Universal untuk semua kategori */}
+      <div className="mt-6">
+        <h4 className="text-sm font-medium text-gray-700 mb-3">{getKerawananTableTitle()}</h4>
+        {(() => {
+          // Filter berdasarkan category
+          let filteredData = [];
+          
+          if (incidentData.category === 'Banjir') {
+            filteredData = kerawananData.filter(item => item.type === 'limpasan' || !item.type);
+          } else if (incidentData.category === 'Kebakaran Hutan dan Kekeringan') {
+            filteredData = kerawananData.filter(item => item.type === 'karhutla' || !item.type);
+          } else if (incidentData.category === 'Tanah Longsor dan Erosi') {
+            filteredData = kerawananData.filter(item => item.type === 'erosi' || !item.type);
+          } else {
+            filteredData = kerawananData;
+          }
+          
+          return filteredData.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-2 px-2 font-medium text-gray-600">
+                      Warna
+                    </th>
+                    {getKerawananTableHeaders().map((header, idx) => (
+                      <th key={idx} className="text-left py-2 px-2 font-medium text-gray-600">
+                        {header}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredData.map((item, idx) => (
+                    <tr key={idx} className="border-b border-gray-100">
+                      <td className="py-2 px-2">
+                        <div 
+                          className="w-6 h-4 rounded border border-gray-300"
+                          style={{ backgroundColor: kerawananDataColors[item.tingkat] || kerawananColors[item.tingkat] || '#808080' }}
+                        ></div>
+                      </td>
+                      <td className="py-2 px-2 text-gray-700">{item.tingkat}</td>
+                      <td className="py-2 px-2 text-gray-700">
+                        {parseFloat(item.luas_total).toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center text-gray-400 py-4">
+              <p className="text-xs">Tidak ada data kerawanan</p>
+            </div>
+          );
+        })()}
+      </div>
                 </div>
               </div>
             </div>

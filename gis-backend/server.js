@@ -9079,14 +9079,17 @@ app.get('/api/tutupan-lahan/by-coordinates', async (req, res) => {
 
     console.log('Fetching tutupan lahan for coordinates:', { longitude, latitude });
 
-    // Query dengan JOIN ke mapping_penutupan_lahan untuk deskripsi
+    // Query dengan JOIN ke mapping_penutupan_lahan untuk deskripsi DAN sum luas_ha
+    // Cast both sides untuk ensure matching
     const query = `
-      SELECT DISTINCT 
+      SELECT 
         tl.pl2024_id,
-        mpl.deskripsi_domain,
-        COUNT(*) as count
+        COALESCE(mpl.deskripsi_domain, 'Tutupan Lahan ' || tl.pl2024_id::text) as deskripsi_domain,
+        COUNT(*) as count,
+        SUM(tl.luas_ha) as total_luas_ha
       FROM tutupan_lahan tl
-      LEFT JOIN mapping_penutupan_lahan mpl ON tl.pl2024_id::text = mpl.kode_domain
+      LEFT JOIN mapping_penutupan_lahan mpl 
+        ON tl.pl2024_id::text = mpl.kode_domain::text
       WHERE ST_Intersects(
         tl.geom,
         ST_Buffer(
@@ -9095,13 +9098,14 @@ app.get('/api/tutupan-lahan/by-coordinates', async (req, res) => {
         )::geometry
       )
       GROUP BY tl.pl2024_id, mpl.deskripsi_domain
-      ORDER BY count DESC
+      ORDER BY total_luas_ha DESC
       LIMIT 10
     `;
     
     const result = await pool.query(query, [parseFloat(longitude), parseFloat(latitude)]);
     
     console.log(`Found ${result.rows.length} tutupan lahan records`);
+    console.log('Sample data:', result.rows[0]); // Debug
     
     res.json({
       success: true,
@@ -9113,6 +9117,97 @@ app.get('/api/tutupan-lahan/by-coordinates', async (req, res) => {
     res.status(500).json({ 
       error: 'Failed to fetch tutupan lahan data',
       details: error.message 
+    });
+  }
+});
+
+// Endpoint untuk tutupan lahan agregat berdasarkan DAS (bukan koordinat)
+app.get('/api/tutupan-lahan/by-das', async (req, res) => {
+  try {
+    const { das } = req.query;
+    
+    if (!das) {
+      return res.status(400).json({ 
+        error: 'Missing required parameter: das' 
+      });
+    }
+
+    console.log('Fetching tutupan lahan for DAS:', das);
+
+    const query = `
+      SELECT 
+        tl.pl2024_id,
+        COALESCE(mpl.deskripsi_domain, 'Tutupan Lahan ' || tl.pl2024_id::text) as deskripsi_domain,
+        COUNT(*) as count,
+        SUM(tl.luas_ha) as total_luas_ha
+      FROM tutupan_lahan tl
+      LEFT JOIN mapping_penutupan_lahan mpl 
+        ON tl.pl2024_id::text = mpl.kode_domain::text
+      WHERE ST_Intersects(
+        tl.geom,
+        (SELECT ST_Union(geom) FROM das_adm WHERE nama_das = $1)
+      )
+      GROUP BY tl.pl2024_id, mpl.deskripsi_domain
+      ORDER BY total_luas_ha DESC
+    `;
+    
+    const result = await pool.query(query, [das]);
+    
+    console.log(`Found ${result.rows.length} tutupan lahan types in DAS`);
+    
+    res.json({
+      success: true,
+      data: result.rows
+    });
+    
+  } catch (error) {
+    console.error('Error fetching tutupan lahan by DAS:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch tutupan lahan data',
+      details: error.message 
+    });
+  }
+});
+
+app.get('/api/das/geometry-by-name', async (req, res) => {
+  try {
+    const { dasName } = req.query;
+    
+    if (!dasName) {
+      return res.status(400).json({ 
+        error: 'Missing required parameter: dasName' 
+      });
+    }
+
+    console.log('Fetching DAS geometry by name:', dasName);
+
+    const result = await pool.query(`
+      SELECT 
+        nama_das,
+        ST_AsGeoJSON(ST_Union(ST_Force2D(geom)))::json as geom
+      FROM das_adm
+      WHERE nama_das = $1
+      GROUP BY nama_das
+    `, [dasName]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'DAS not found' 
+      });
+    }
+    
+    res.json({
+      success: true,
+      dasName: result.rows[0].nama_das,
+      geom: result.rows[0].geom
+    });
+    
+  } catch (error) {
+    console.error('Error fetching DAS geometry by name:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
     });
   }
 });
@@ -9271,6 +9366,166 @@ app.get('/api/kejadian/list', async (req, res) => {
 //   }
 // });
 
+
+// Endpoint baru: Kerawanan data berdasarkan DAS (bukan koordinat)
+app.get('/api/kerawanan/by-das', async (req, res) => {
+  try {
+    const { das, category } = req.query;
+    
+    if (!das || !category) {
+      return res.status(400).json({ 
+        error: 'Missing required parameters: das, category' 
+      });
+    }
+
+    console.log('Fetching kerawanan data for DAS:', { das, category });
+
+    let queries = [];
+    
+    // Tentukan query berdasarkan kategori
+    if (category === 'Banjir') {
+      queries.push({
+        type: 'limpasan',
+        query: `
+          SELECT 
+            'limpasan' as type,
+            limpasan as tingkat,
+            SUM(ST_Area(
+              ST_Intersection(
+                ST_MakeValid(rl.geom),
+                (SELECT ST_Union(ST_MakeValid(geom)) FROM das_adm WHERE nama_das = $1)
+              )::geography
+            )) / 10000 as luas_total
+          FROM rawan_limpasan rl
+          WHERE ST_Intersects(
+            rl.geom,
+            (SELECT ST_Union(geom) FROM das_adm WHERE nama_das = $1)
+          )
+          GROUP BY limpasan
+          ORDER BY 
+            CASE limpasan
+              WHEN 'Ekstrim' THEN 1
+              WHEN 'Tinggi' THEN 2
+              WHEN 'Rendah' THEN 3
+              WHEN 'Normal' THEN 4
+              ELSE 5
+            END
+        `
+      });
+    } else if (category === 'Kebakaran Hutan dan Kekeringan') {
+      queries.push({
+        type: 'karhutla',
+        query: `
+          SELECT 
+            'karhutla' as type,
+            kelas as tingkat,
+            SUM(luas_ha) as luas_total
+          FROM rawan_karhutla rk
+          WHERE ST_Intersects(
+            rk.geom,
+            (SELECT ST_Union(geom) FROM das_adm WHERE nama_das = $1)
+          )
+          GROUP BY kelas
+          ORDER BY 
+            CASE kelas
+              WHEN 'Sangat Tinggi' THEN 1
+              WHEN 'Tinggi' THEN 2
+              WHEN 'Sedang' THEN 3
+              WHEN 'Rendah' THEN 4
+              ELSE 5
+            END
+        `
+      });
+    } else if (category === 'Tanah Longsor dan Erosi') {
+      queries.push({
+        type: 'longsor',
+        query: `
+          SELECT 
+            'longsor' as type,
+            unsur as tingkat,
+            SUM(shape_area) as luas_total
+          FROM rawan_longsor rl
+          WHERE ST_Intersects(
+            rl.geom,
+            (SELECT ST_Union(geom) FROM das_adm WHERE nama_das = $1)
+          )
+          GROUP BY unsur
+          ORDER BY 
+            CASE unsur
+              WHEN 'Tinggi' THEN 1
+              WHEN 'Menengah' THEN 2
+              WHEN 'Rendah' THEN 3
+              WHEN 'Sangat Rendah' THEN 4
+              ELSE 5
+            END
+        `
+      });
+      queries.push({
+        type: 'erosi',
+        query: `
+          WITH erosi_classified AS (
+            SELECT 
+              'erosi' as type,
+              CASE 
+                WHEN kls_a = '>480' THEN 'Sangat Tinggi'
+                WHEN kls_a ~ '^[0-9]+\.?[0-9]*$' THEN
+                  CASE 
+                    WHEN kls_a::numeric <= 15 THEN 'Sangat Rendah'
+                    WHEN kls_a::numeric <= 60 THEN 'Rendah'
+                    WHEN kls_a::numeric <= 180 THEN 'Sedang'
+                    WHEN kls_a::numeric <= 480 THEN 'Tinggi'
+                    ELSE 'Sangat Tinggi'
+                  END
+                ELSE 'Sangat Tinggi'
+              END as tingkat,
+              n_a
+            FROM rawan_erosi re
+            WHERE ST_Intersects(
+              re.geom,
+              (SELECT ST_Union(geom) FROM das_adm WHERE nama_das = $1)
+            )
+          )
+          SELECT 
+            type,
+            tingkat,
+            SUM(n_a) as luas_total
+          FROM erosi_classified
+          GROUP BY type, tingkat
+          ORDER BY 
+            CASE tingkat
+              WHEN 'Sangat Tinggi' THEN 1
+              WHEN 'Tinggi' THEN 2
+              WHEN 'Sedang' THEN 3
+              WHEN 'Rendah' THEN 4
+              WHEN 'Sangat Rendah' THEN 5
+              ELSE 6
+            END
+        `
+      });
+    }
+    
+    const results = [];
+    for (const q of queries) {
+      const result = await pool.query(q.query, [das]);
+      results.push(...result.rows);
+    }
+    
+    console.log(`Found ${results.length} kerawanan records for ${category} in DAS ${das}`);
+    
+    res.json({
+      success: true,
+      data: results
+    });
+    
+  } catch (error) {
+    console.error('Error fetching kerawanan by DAS:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch kerawanan data',
+      details: error.message 
+    });
+  }
+});
+
 // Endpoint untuk fetch data kerawanan berdasarkan kategori dan koordinat
 app.get('/api/kerawanan/by-coordinates', async (req, res) => {
   try {
@@ -9390,7 +9645,8 @@ app.get('/api/kerawanan/by-coordinates', async (req, res) => {
         
         return {
           tingkat: tingkat,
-          luas_total: row.luas_total
+          luas_total: row.luas_total,
+          type: 'erosi'
         };
       });
       
@@ -9410,8 +9666,47 @@ app.get('/api/kerawanan/by-coordinates', async (req, res) => {
         .sort((a, b) => tingkatOrder.indexOf(a) - tingkatOrder.indexOf(b))
         .map(tingkat => ({
           tingkat: tingkat,
-          luas_total: grouped[tingkat]
+          luas_total: grouped[tingkat],
+          type: 'erosi'
         }));
+      
+      // TAMBAHAN: Fetch data rawan longsor dan gabungkan
+      const longsorQuery = `
+        SELECT 
+          unsur as tingkat,
+          SUM(shape_area) as luas_total
+        FROM rawan_longsor
+        WHERE ST_Intersects(
+          ST_SetSRID(geom, 4326),
+          ST_Buffer(
+            ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
+            1000
+          )::geometry
+        )
+        GROUP BY unsur
+        ORDER BY 
+          CASE unsur
+            WHEN 'Sangat Tinggi' THEN 1
+            WHEN 'Tinggi' THEN 2
+            WHEN 'Menengah' THEN 3
+            WHEN 'Rendah' THEN 4
+            ELSE 5
+          END
+      `;
+      
+      const longsorResult = await pool.query(longsorQuery, [parseFloat(longitude), parseFloat(latitude)]);
+      
+      // Tambahkan data longsor ke processedData dengan type marker
+      const longsorData = longsorResult.rows.map(row => ({
+        tingkat: row.tingkat,
+        luas_total: parseFloat(row.luas_total),
+        type: 'longsor'
+      }));
+      
+      processedData = [...processedData, ...longsorData];
+      
+      console.log(`Found ${processedData.filter(d => d.type === 'erosi').length} erosi records`);
+      console.log(`Found ${processedData.filter(d => d.type === 'longsor').length} longsor records`);
     }
     
     console.log(`Found ${processedData.length} kerawanan records for ${category}`);
@@ -9427,6 +9722,171 @@ app.get('/api/kerawanan/by-coordinates', async (req, res) => {
     res.status(500).json({ 
       error: 'Failed to fetch kerawanan data',
       details: error.message 
+    });
+  }
+});
+
+// Endpoint untuk fetch layer kerawanan sebagai GeoJSON berdasarkan kategori dan DAS
+app.get('/api/kerawanan/geojson', async (req, res) => {
+  try {
+    const { category, das } = req.query;
+    
+    if (!category) {
+      return res.status(400).json({ 
+        error: 'Missing required parameter: category' 
+      });
+    }
+
+    console.log('Fetching kerawanan GeoJSON for:', { category, das });
+
+    let queries = [];
+    
+    if (category === 'Banjir') {
+      queries.push({
+        name: 'rawan_limpasan',
+        query: `
+          SELECT 
+            limpasan as tingkat,
+            ST_AsGeoJSON(
+              ${das ? `
+                ST_Intersection(
+                  ST_Force2D(geom),
+                  (SELECT ST_Force2D(ST_Union(geom)) FROM das_adm WHERE nama_das = $1)
+                )
+              ` : 'geom'}
+            )::json as geometry
+          FROM rawan_limpasan
+          ${das ? `WHERE ST_Intersects(
+            ST_Force2D(geom),
+            (SELECT ST_Force2D(ST_Union(geom)) FROM das_adm WHERE nama_das = $1)
+          )` : ''}
+        `,
+        params: das ? [das] : []
+      });
+      
+    } else if (category === 'Kebakaran Hutan dan Kekeringan') {
+      queries.push({
+        name: 'rawan_karhutla',
+        query: `
+          SELECT 
+            kelas as tingkat,
+            ST_AsGeoJSON(
+              ${das ? `
+                ST_Intersection(
+                  ST_Force2D(geom),
+                  (SELECT ST_Force2D(ST_Union(geom)) FROM das_adm WHERE nama_das = $1)
+                )
+              ` : 'geom'}
+            )::json as geometry
+          FROM rawan_karhutla
+          ${das ? `WHERE ST_Intersects(
+            ST_Force2D(geom),
+            (SELECT ST_Force2D(ST_Union(geom)) FROM das_adm WHERE nama_das = $1)
+          )` : ''}
+        `,
+        params: das ? [das] : []
+      });
+      
+    } else if (category === 'Tanah Longsor dan Erosi') {
+      // Rawan Erosi
+      queries.push({
+        name: 'rawan_erosi',
+        query: `
+          SELECT 
+            CASE 
+              WHEN kls_a = '>480' THEN 'Sangat Tinggi'
+              WHEN kls_a ~ '^[0-9]+\.?[0-9]*$' THEN
+                CASE 
+                  WHEN kls_a::numeric <= 15 THEN 'Sangat Rendah'
+                  WHEN kls_a::numeric <= 60 THEN 'Rendah'
+                  WHEN kls_a::numeric <= 180 THEN 'Sedang'
+                  WHEN kls_a::numeric <= 480 THEN 'Tinggi'
+                  ELSE 'Sangat Tinggi'
+                END
+              ELSE 'Sangat Tinggi'
+            END as tingkat,
+            ST_AsGeoJSON(
+              ${das ? `
+                ST_Intersection(
+                  ST_Force2D(geom),
+                  (SELECT ST_Force2D(ST_Union(geom)) FROM das_adm WHERE nama_das = $1)
+                )
+              ` : 'geom'}
+            )::json as geometry
+          FROM rawan_erosi
+          WHERE kls_a IS NOT NULL AND kls_a != ''
+          ${das ? `AND ST_Intersects(
+            ST_Force2D(geom),
+            (SELECT ST_Force2D(ST_Union(geom)) FROM das_adm WHERE nama_das = $1)
+          )` : ''}
+        `,
+        params: das ? [das] : []
+      });
+      
+      // Rawan Longsor
+      queries.push({
+        name: 'rawan_longsor',
+        query: `
+          SELECT 
+            unsur as tingkat,
+            ST_AsGeoJSON(
+              ${das ? `
+                ST_Intersection(
+                  ST_Force2D(geom),
+                  (SELECT ST_Force2D(ST_Union(geom)) FROM das_adm WHERE nama_das = $1)
+                )
+              ` : 'geom'}
+            )::json as geometry
+          FROM rawan_longsor
+          ${das ? `WHERE ST_Intersects(
+            ST_Force2D(geom),
+            (SELECT ST_Force2D(ST_Union(geom)) FROM das_adm WHERE nama_das = $1)
+          )` : ''}
+        `,
+        params: das ? [das] : []
+      });
+      
+    } else {
+      return res.status(400).json({ 
+        error: 'Invalid category' 
+      });
+    }
+    
+    // Execute all queries
+    const results = {};
+    
+    for (const queryObj of queries) {
+      const result = await pool.query(queryObj.query, queryObj.params);
+      
+      // Convert to GeoJSON format, filter out null/empty geometries
+      const features = result.rows
+        .filter(row => row.geometry && row.geometry.type && row.geometry.coordinates)
+        .map(row => ({
+          type: 'Feature',
+          properties: {
+            tingkat: row.tingkat
+          },
+          geometry: row.geometry
+        }));
+      
+      results[queryObj.name] = {
+        type: 'FeatureCollection',
+        features: features
+      };
+      
+      console.log(`${queryObj.name}: ${features.length} features`);
+    }
+    
+    res.json({
+      success: true,
+      data: results
+    });
+    
+  } catch (error) {
+    console.error('Error fetching kerawanan GeoJSON:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
     });
   }
 });
@@ -9483,7 +9943,9 @@ app.get('/api/weather/rainfall', async (req, res) => {
 
 app.post('/api/kejadian/check-years-availability', async (req, res) => {
   try {
-    const { bounds, dasFilter } = req.body;
+    const { bounds, dasFilter, adminFilter, adminLevel } = req.body;
+    
+    console.log('Check years availability - bounds:', bounds, 'dasFilter:', dasFilter, 'adminFilter:', adminFilter, 'adminLevel:', adminLevel);
     
     let query = `
       SELECT DISTINCT 
@@ -9496,9 +9958,62 @@ app.post('/api/kejadian/check-years-availability', async (req, res) => {
     
     const params = [];
     let paramIndex = 1;
+    let usedSpatialFilter = false;
     
-    // Filter by bounds if provided
-    if (bounds && bounds.length === 2) {
+    // Prioritas: DAS Filter > Admin Filter > Bounds Filter
+    
+    // 1. DAS Filter dengan spatial intersection
+    if (dasFilter && dasFilter.length > 0) {
+      const dasPlaceholders = dasFilter.map((_, i) => `$${paramIndex + i}`).join(',');
+      query += ` AND ST_Intersects(
+        ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
+        (SELECT ST_Union(geom) FROM das_adm WHERE nama_das IN (${dasPlaceholders}))
+      )`;
+      params.push(...dasFilter);
+      paramIndex += dasFilter.length;
+      usedSpatialFilter = true;
+      console.log('Applied DAS spatial filter for count:', dasFilter);
+    }
+    
+    // 2. Admin Filter dengan spatial intersection
+    if (!usedSpatialFilter && adminFilter && adminFilter.length > 0 && adminLevel) {
+      let adminTable, adminColumn;
+      
+      switch(adminLevel) {
+        case 'provinsi':
+          adminTable = 'provinsi';
+          adminColumn = 'provinsi';
+          break;
+        case 'kabupaten':
+          adminTable = 'kab_kota';
+          adminColumn = 'kab_kota';
+          break;
+        case 'kecamatan':
+          adminTable = 'kecamatan';
+          adminColumn = 'kecamatan';
+          break;
+        case 'kelurahan':
+          adminTable = 'kel_desa';
+          adminColumn = 'kel_desa';
+          break;
+        default:
+          adminTable = 'provinsi';
+          adminColumn = 'provinsi';
+      }
+      
+      const adminPlaceholders = adminFilter.map((_, i) => `$${paramIndex + i}`).join(',');
+      query += ` AND ST_Intersects(
+        ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
+        (SELECT ST_Union(geom) FROM ${adminTable} WHERE ${adminColumn} IN (${adminPlaceholders}))
+      )`;
+      params.push(...adminFilter);
+      paramIndex += adminFilter.length;
+      usedSpatialFilter = true;
+      console.log(`Applied ${adminLevel} spatial filter for count:`, adminFilter);
+    }
+    
+    // 3. Bounds filter (fallback)
+    if (!usedSpatialFilter && bounds && bounds.length === 2) {
       const [[minLat, minLng], [maxLat, maxLng]] = bounds;
       query += ` AND ST_Intersects(
         ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
@@ -9506,14 +10021,7 @@ app.post('/api/kejadian/check-years-availability', async (req, res) => {
       )`;
       params.push(minLng, minLat, maxLng, maxLat);
       paramIndex += 4;
-    }
-    
-    // Filter by DAS if provided
-    if (dasFilter && dasFilter.length > 0) {
-      const dasPlaceholders = dasFilter.map((_, i) => `$${paramIndex + i}`).join(',');
-      query += ` AND INITCAP(das) IN (${dasPlaceholders})`;
-      params.push(...dasFilter.map(d => d.charAt(0).toUpperCase() + d.slice(1).toLowerCase()));
-      paramIndex += dasFilter.length;
+      console.log('Applied bounds filter for count');
     }
     
     query += ' GROUP BY category, EXTRACT(YEAR FROM date) ORDER BY year DESC, category';
@@ -9544,9 +10052,9 @@ app.post('/api/kejadian/check-years-availability', async (req, res) => {
 
 app.get('/api/kejadian/photos', async (req, res) => {
   try {
-    const { bounds, year, dasFilter } = req.query;
+    const { bounds, year, category, dasFilter, adminFilter, adminLevel } = req.query;
     
-    console.log('Fetching photos - year:', year, 'bounds:', bounds, 'dasFilter:', dasFilter);
+    console.log('Fetching photos - year:', year, 'category:', category, 'bounds:', bounds, 'dasFilter:', dasFilter, 'adminFilter:', adminFilter, 'adminLevel:', adminLevel);
     
     if (!year) {
       return res.status(400).json({ 
@@ -9555,7 +10063,6 @@ app.get('/api/kejadian/photos', async (req, res) => {
       });
     }
     
-    // Query yang lebih aman - cek array length > 0
     let query = `
       SELECT 
         id,
@@ -9579,9 +10086,84 @@ app.get('/api/kejadian/photos', async (req, res) => {
     
     const params = [parseInt(year)];
     let paramIndex = 2;
+    let usedSpatialFilter = false;
     
-    // Filter by bounds if provided
-    if (bounds) {
+    // TAMBAHKAN: Category filter
+    if (category) {
+      query += ` AND category = $${paramIndex}`;
+      params.push(category);
+      paramIndex++;
+      console.log('Applied category filter for photos:', category);
+    }
+    
+    // Prioritas: DAS Filter > Admin Filter > Bounds Filter
+    
+    // 1. DAS Filter dengan spatial intersection
+    if (dasFilter) {
+      try {
+        const dasArray = JSON.parse(dasFilter);
+        if (dasArray && dasArray.length > 0) {
+          const dasPlaceholders = dasArray.map((_, i) => `$${paramIndex + i}`).join(',');
+          query += ` AND ST_Intersects(
+            ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
+            (SELECT ST_Union(geom) FROM das_adm WHERE nama_das IN (${dasPlaceholders}))
+          )`;
+          params.push(...dasArray);
+          paramIndex += dasArray.length;
+          usedSpatialFilter = true;
+          console.log('Applied DAS spatial filter for photos:', dasArray);
+        }
+      } catch (e) {
+        console.error('Error parsing dasFilter:', e);
+      }
+    }
+    
+    // 2. Admin Filter dengan spatial intersection
+    if (!usedSpatialFilter && adminFilter && adminLevel) {
+      try {
+        const adminArray = JSON.parse(adminFilter);
+        if (adminArray && adminArray.length > 0) {
+          let adminTable, adminColumn;
+          
+          switch(adminLevel) {
+            case 'provinsi':
+              adminTable = 'provinsi';
+              adminColumn = 'provinsi';
+              break;
+            case 'kabupaten':
+              adminTable = 'kab_kota';
+              adminColumn = 'kab_kota';
+              break;
+            case 'kecamatan':
+              adminTable = 'kecamatan';
+              adminColumn = 'kecamatan';
+              break;
+            case 'kelurahan':
+              adminTable = 'kel_desa';
+              adminColumn = 'kel_desa';
+              break;
+            default:
+              adminTable = 'provinsi';
+              adminColumn = 'provinsi';
+          }
+          
+          const adminPlaceholders = adminArray.map((_, i) => `$${paramIndex + i}`).join(',');
+          query += ` AND ST_Intersects(
+            ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
+            (SELECT ST_Union(geom) FROM ${adminTable} WHERE ${adminColumn} IN (${adminPlaceholders}))
+          )`;
+          params.push(...adminArray);
+          paramIndex += adminArray.length;
+          usedSpatialFilter = true;
+          console.log(`Applied ${adminLevel} spatial filter for photos:`, adminArray);
+        }
+      } catch (e) {
+        console.error('Error parsing adminFilter:', e);
+      }
+    }
+    
+    // 3. Bounds filter (fallback)
+    if (!usedSpatialFilter && bounds) {
       const [minLat, minLng, maxLat, maxLng] = bounds.split(',').map(Number);
       query += ` AND ST_Intersects(
         ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
@@ -9589,155 +10171,60 @@ app.get('/api/kejadian/photos', async (req, res) => {
       )`;
       params.push(minLng, minLat, maxLng, maxLat);
       paramIndex += 4;
-    }
-    
-    // Filter by DAS if provided
-    if (dasFilter) {
-      try {
-        const dasArray = JSON.parse(dasFilter);
-        if (dasArray && dasArray.length > 0) {
-          const dasPlaceholders = dasArray.map((_, i) => `$${paramIndex + i}`).join(',');
-          query += ` AND INITCAP(das) IN (${dasPlaceholders})`;
-          params.push(...dasArray.map(d => d.charAt(0).toUpperCase() + d.slice(1).toLowerCase()));
-          paramIndex += dasArray.length;
-        }
-      } catch (e) {
-        console.error('Error parsing dasFilter:', e);
-      }
+      console.log('Applied bounds filter for photos');
     }
     
     query += ' ORDER BY date DESC';
     
-    console.log('Executing kejadian photos query:', query);
-    console.log('With params:', params);
+    console.log('Executing kejadian photos query with params:', params);
     
-    let result;
-    try {
-      result = await pool.query(query, params);
-    } catch (queryError) {
-      console.error('Query execution error:', queryError);
-      // Jika masih error, coba query alternatif tanpa array_length check
-      console.log('Trying alternative query without array_length...');
-      
-      query = `
-        SELECT 
-          id,
-          images_paths,
-          latitude,
-          longitude,
-          category,
-          date,
-          title
-        FROM kejadian
-        WHERE EXTRACT(YEAR FROM date) = $1
-          AND images_paths IS NOT NULL
-      `;
-      
-      const altParams = [parseInt(year)];
-      let altParamIndex = 2;
-      
-      if (bounds) {
-        const [minLat, minLng, maxLat, maxLng] = bounds.split(',').map(Number);
-        query += ` AND ST_Intersects(
-          ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
-          ST_MakeEnvelope($${altParamIndex}, $${altParamIndex+1}, $${altParamIndex+2}, $${altParamIndex+3}, 4326)
-        )`;
-        altParams.push(minLng, minLat, maxLng, maxLat);
-        altParamIndex += 4;
-      }
-      
-      if (dasFilter) {
-        try {
-          const dasArray = JSON.parse(dasFilter);
-          if (dasArray && dasArray.length > 0) {
-            const dasPlaceholders = dasArray.map((_, i) => `$${altParamIndex + i}`).join(',');
-            query += ` AND INITCAP(das) IN (${dasPlaceholders})`;
-            altParams.push(...dasArray.map(d => d.charAt(0).toUpperCase() + d.slice(1).toLowerCase()));
-            altParamIndex += dasArray.length;
-          }
-        } catch (e) {
-          console.error('Error parsing dasFilter:', e);
-        }
-      }
-      
-      query += ' ORDER BY date DESC';
-      result = await pool.query(query, altParams);
-    }
+    const result = await pool.query(query, params);
     
     console.log('Raw query result rows:', result.rows.length);
     
     // Parse images_paths dan flatten menjadi array foto
     const photos = [];
     result.rows.forEach((row, idx) => {
-      console.log(`Processing row ${idx}:`, { 
-        id: row.id, 
-        images_paths: row.images_paths, 
-        type: typeof row.images_paths,
-        isArray: Array.isArray(row.images_paths)
-      });
-      
       if (!row.images_paths) {
-        console.log(`Skipping null images_paths for row ${row.id}`);
         return;
       }
       
       let paths = [];
-      
-      try {
-        if (Array.isArray(row.images_paths)) {
-          // Sudah array dari PostgreSQL
-          paths = row.images_paths.filter(path => path && path.trim() !== '' && path.trim() !== '""');
-        } else if (typeof row.images_paths === 'string') {
-          const strValue = row.images_paths.trim();
-          
-          // Skip berbagai bentuk string kosong
-          if (strValue === '' || strValue === '{}' || strValue === '""' || strValue === 'null') {
-            console.log(`Skipping empty/invalid string for row ${row.id}: "${strValue}"`);
-            return;
+      if (Array.isArray(row.images_paths)) {
+        paths = row.images_paths;
+      } else if (typeof row.images_paths === 'string') {
+        try {
+          paths = JSON.parse(row.images_paths);
+          if (!Array.isArray(paths)) {
+            paths = [row.images_paths];
           }
-          
-          // Parse string array format: {path1,path2,path3}
-          if (strValue.startsWith('{') && strValue.endsWith('}')) {
-            paths = strValue
-              .slice(1, -1) // Remove { }
-              .split(',')
-              .map(p => p.trim())
-              .filter(p => p !== '' && p !== '""');
-          } else {
-            // Single path tanpa kurung kurawal
-            if (strValue !== '""') {
-              paths = [strValue];
-            }
-          }
+        } catch (e) {
+          paths = [row.images_paths];
         }
-        
-        console.log(`Found ${paths.length} valid paths for row ${row.id}`);
-        
-        paths.forEach(path => {
-          if (path && path.trim()) {
-            photos.push({
-              id: row.id,
-              path: path.trim(),
-              incident_type: row.category,
-              incident_date: row.date,
-              title: row.title,
-              latitude: row.latitude,
-              longitude: row.longitude
-            });
-          }
-        });
-      } catch (parseError) {
-        console.error(`Error parsing images_paths for row ${row.id}:`, parseError);
-        console.error('Value was:', row.images_paths);
       }
+      
+      paths.forEach(path => {
+        if (path && path.trim() !== '') {
+          photos.push({
+            id: row.id,
+            path: path,
+            incident_type: row.category || 'Unknown',
+            incident_date: row.date,
+            title: row.title || '',
+            latitude: row.latitude,
+            longitude: row.longitude
+          });
+        }
+      });
     });
     
-    console.log('Kejadian photos fetched:', photos.length, 'photos from', result.rows.length, 'incidents');
+    console.log('Total photos after processing:', photos.length);
     
     res.json({
       success: true,
       photos: photos
     });
+    
   } catch (error) {
     console.error('Error fetching kejadian photos:', error);
     res.status(500).json({ 
@@ -9768,17 +10255,17 @@ app.get('/api/kejadian/years', async (req, res) => {
   }
 });
 
-// Endpoint untuk mendapatkan data kejadian berdasarkan tahun dalam format GeoJSON
 app.get('/api/kejadian/by-year/:year', async (req, res) => {
   const client = await pool.connect();
   
   try {
     const { year } = req.params;
-    const { bounds, dasFilter, category } = req.query;
+    const { bounds, dasFilter, category, adminFilter, adminLevel } = req.query;
     
     console.log('Fetching kejadian for year:', year);
     console.log('Bounds:', bounds);
-    console.log('dasFilter (raw):', dasFilter);
+    console.log('dasFilter:', dasFilter);
+    console.log('adminFilter:', adminFilter, 'adminLevel:', adminLevel);
     
     // Build WHERE clause
     let whereClause = `WHERE EXTRACT(YEAR FROM date) = $1`;
@@ -9793,18 +10280,10 @@ app.get('/api/kejadian/by-year/:year', async (req, res) => {
       console.log('Applied category filter:', category);
     }
 
-    // Add bounds filter if provided
-    if (bounds) {
-      const [south, west, north, east] = bounds.split(',').map(Number);
-      const boundsWKT = `POLYGON((${west} ${south}, ${east} ${south}, ${east} ${north}, ${west} ${north}, ${west} ${south}))`;
-      whereClause += ` AND ST_Intersects(
-        ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
-        ST_GeomFromText('${boundsWKT}', 4326)
-      )`;
-      console.log('Applied bounds filter');
-    }
+    // Prioritas: DAS Filter > Admin Filter > Bounds Filter
+    let usedSpatialFilter = false;
     
-    // Add DAS filter if provided
+    // 1. DAS Filter dengan spatial intersection
     if (dasFilter) {
       try {
         const dasArray = JSON.parse(dasFilter);
@@ -9812,16 +10291,79 @@ app.get('/api/kejadian/by-year/:year', async (req, res) => {
         
         if (Array.isArray(dasArray) && dasArray.length > 0) {
           const dasPlaceholders = dasArray.map((_, idx) => `$${paramIndex + idx}`).join(', ');
-          // Gunakan INITCAP() untuk Title Case comparison
-          whereClause += ` AND INITCAP(das) IN (${dasPlaceholders})`;
-          // Normalisasi ke Title Case
-          params.push(...dasArray.map(d => d.charAt(0).toUpperCase() + d.slice(1).toLowerCase()));
+          
+          whereClause += ` AND ST_Intersects(
+            ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
+            (SELECT ST_Union(geom) FROM das_adm WHERE nama_das IN (${dasPlaceholders}))
+          )`;
+          
+          params.push(...dasArray);
           paramIndex += dasArray.length;
-          console.log('Applied DAS filter with Title Case values:', dasArray.map(d => d.charAt(0).toUpperCase() + d.slice(1).toLowerCase()));
+          usedSpatialFilter = true;
+          console.log('Applied DAS spatial filter:', dasArray);
         }
       } catch (e) {
         console.error('Error parsing dasFilter:', e);
       }
+    }
+    
+    // 2. Admin Filter dengan spatial intersection
+    if (!usedSpatialFilter && adminFilter && adminLevel) {
+      try {
+        const adminArray = JSON.parse(adminFilter);
+        console.log('Parsed adminFilter:', adminArray);
+        
+        if (Array.isArray(adminArray) && adminArray.length > 0) {
+          let adminTable, adminColumn;
+          
+          switch(adminLevel) {
+            case 'provinsi':
+              adminTable = 'provinsi';
+              adminColumn = 'provinsi';
+              break;
+            case 'kabupaten':
+              adminTable = 'kab_kota';
+              adminColumn = 'kab_kota';
+              break;
+            case 'kecamatan':
+              adminTable = 'kecamatan';
+              adminColumn = 'kecamatan';
+              break;
+            case 'kelurahan':
+              adminTable = 'kel_desa';
+              adminColumn = 'kel_desa';
+              break;
+            default:
+              adminTable = 'provinsi';
+              adminColumn = 'provinsi';
+          }
+          
+          const adminPlaceholders = adminArray.map((_, idx) => `$${paramIndex + idx}`).join(', ');
+          
+          whereClause += ` AND ST_Intersects(
+            ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
+            (SELECT ST_Union(geom) FROM ${adminTable} WHERE ${adminColumn} IN (${adminPlaceholders}))
+          )`;
+          
+          params.push(...adminArray);
+          paramIndex += adminArray.length;
+          usedSpatialFilter = true;
+          console.log(`Applied ${adminLevel} spatial filter:`, adminArray);
+        }
+      } catch (e) {
+        console.error('Error parsing adminFilter:', e);
+      }
+    }
+    
+    // 3. Bounds filter (fallback jika tidak ada DAS/Admin filter)
+    if (!usedSpatialFilter && bounds) {
+      const [south, west, north, east] = bounds.split(',').map(Number);
+      const boundsWKT = `POLYGON((${west} ${south}, ${east} ${south}, ${east} ${north}, ${west} ${north}, ${west} ${south}))`;
+      whereClause += ` AND ST_Intersects(
+        ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
+        ST_GeomFromText('${boundsWKT}', 4326)
+      )`;
+      console.log('Applied bounds filter');
     }
     
     const query = `
@@ -9843,7 +10385,7 @@ app.get('/api/kejadian/by-year/:year', async (req, res) => {
       ORDER BY date DESC
     `;
     
-    console.log('Kejadian query:', query, 'params:', params);
+    console.log('Kejadian query params:', params);
     
     const result = await client.query(query, params);
     
@@ -11037,14 +11579,153 @@ function sendProgress(tableName, progress, status, done = false) {
 //   }
 // });
 
+// app.get('/api/layers/:tableName/geojson', async (req, res) => {
+//   const client = await pool.connect();
+  
+//   try {
+//     const { tableName } = req.params;
+//     const { bounds, zoom, dasFilter } = req.query;
+    
+//     // Validate table name untuk keamanan
+//     const validationResult = await client.query(
+//       `SELECT table_name FROM layer_metadata WHERE table_name = $1`,
+//       [tableName]
+//     );
+    
+//     if (validationResult.rows.length === 0) {
+//       return res.status(404).json({ error: 'Layer not found' });
+//     }
+    
+//     // Get all columns except geom
+//     const columnsResult = await client.query(`
+//       SELECT column_name 
+//       FROM information_schema.columns 
+//       WHERE table_name = $1 AND column_name != 'geom'
+//       ORDER BY ordinal_position
+//     `, [tableName]);
+    
+//     // Build properties selection - ambil semua kolom
+//     const propsSelect = columnsResult.rows
+//       .map(r => `'${r.column_name}', ${r.column_name}`)
+//       .join(', ');
+    
+//     // Tentukan toleransi simplifikasi berdasarkan zoom level
+//     const zoomLevel = zoom ? parseInt(zoom) : 10;
+//     let tolerance;
+    
+//     if (zoomLevel <= 5) {
+//       tolerance = 0.01;
+//       console.log('Zoom level', zoomLevel, '- High simplification (tolerance:', tolerance, ')');
+//     } else if (zoomLevel <= 7) {
+//       tolerance = 0.005;
+//       console.log('Zoom level', zoomLevel, '- Medium simplification (tolerance:', tolerance, ')');
+//     } else if (zoomLevel <= 9) {
+//       tolerance = 0.001;
+//       console.log('Zoom level', zoomLevel, '- Low simplification (tolerance:', tolerance, ')');
+//     } else if (zoomLevel <= 11) {
+//       tolerance = 0.0005;
+//       console.log('Zoom level', zoomLevel, '- Very low simplification (tolerance:', tolerance, ')');
+//     } else {
+//       tolerance = 0;
+//       console.log('Zoom level', zoomLevel, '- NO simplification (full detail)');
+//     }
+    
+//     // Build WHERE clause dan geometry select
+//     let whereClause = 'WHERE geom IS NOT NULL';
+//     let geometrySelect;
+    
+//     if (bounds) {
+//       const [south, west, north, east] = bounds.split(',').map(Number);
+//       const boundsWKT = `POLYGON((${west} ${south}, ${east} ${south}, ${east} ${north}, ${west} ${north}, ${west} ${south}))`;
+      
+//       // Filter: HANYA ambil geometry yang SEPENUHNYA di dalam bounds
+//       // Geometry yang sebagian keluar akan TIDAK ditampilkan sama sekali
+//       whereClause += ` AND ST_Within(geom, ST_GeomFromText('${boundsWKT}', 4326))`;
+      
+//       // Tidak perlu clip karena semua geometry sudah pasti di dalam bounds
+//       if (tolerance > 0) {
+//         geometrySelect = `ST_AsGeoJSON(ST_Simplify(geom, ${tolerance}))`;
+//       } else {
+//         geometrySelect = `ST_AsGeoJSON(geom)`;
+//       }
+      
+//       console.log(`Using ST_Within for strict boundary filtering on ${tableName}`);
+//     } else {
+//       // Tidak ada bounds, gunakan geometry original
+//       if (tolerance > 0) {
+//         geometrySelect = `ST_AsGeoJSON(ST_Simplify(geom, ${tolerance}))`;
+//       } else {
+//         geometrySelect = `ST_AsGeoJSON(geom)`;
+//       }
+//     }
+    
+//     // Add DAS filter if provided and table has nama_das column
+//     if (dasFilter) {
+//       try {
+//         const dasArray = JSON.parse(dasFilter);
+        
+//         // Check if table has nama_das column
+//         const hasNamaDasColumn = columnsResult.rows.some(r => r.column_name === 'nama_das');
+        
+//         if (Array.isArray(dasArray) && dasArray.length > 0 && hasNamaDasColumn) {
+//           const dasConditions = dasArray.map(das => `'${das.replace(/'/g, "''")}'`).join(', ');
+//           whereClause += ` AND nama_das IN (${dasConditions})`;
+//           console.log(`Applied DAS filter to ${tableName}:`, dasArray);
+//         }
+//       } catch (e) {
+//         console.error('Error parsing dasFilter:', e);
+//       }
+//     }
+    
+//     // Query dengan filter ST_Within (strict)
+//     const query = `
+//       SELECT 
+//         ${geometrySelect} as geometry,
+//         json_build_object(${propsSelect}) as properties
+//       FROM ${tableName}
+//       ${whereClause}
+//     `;
+    
+//     console.log(`Query for ${tableName}: zoom=${zoomLevel}, tolerance=${tolerance}${tolerance === 0 ? ' (no simplification)' : ''}`);
+    
+//     const result = await client.query(query);
+    
+//     // Build GeoJSON manually
+//     const features = result.rows.map(row => ({
+//       type: 'Feature',
+//       geometry: JSON.parse(row.geometry),
+//       properties: row.properties
+//     }));
+    
+//     const geojson = {
+//       type: 'FeatureCollection',
+//       features: features
+//     };
+    
+//     console.log(`Returning ${features.length} features for ${tableName}`);
+//     res.json(geojson);
+    
+//   } catch (error) {
+//     console.error('Error fetching GeoJSON:', error);
+//     res.status(500).json({ error: 'Failed to fetch layer data: ' + error.message });
+//   } finally {
+//     client.release();
+//   }
+// });
+
+// ================= Modifikasi endpoint /api/layers/:tableName/geojson ================
+// Ganti endpoint yang ada (line 11013) dengan ini:
+
+
+
 app.get('/api/layers/:tableName/geojson', async (req, res) => {
   const client = await pool.connect();
   
   try {
     const { tableName } = req.params;
-    const { bounds, zoom, dasFilter } = req.query;
+    const { bounds, zoom, dasFilter, adminFilter, adminLevel } = req.query;
     
-    // Validate table name untuk keamanan
+    // Validate table name
     const validationResult = await client.query(
       `SELECT table_name FROM layer_metadata WHERE table_name = $1`,
       [tableName]
@@ -11054,7 +11735,6 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
       return res.status(404).json({ error: 'Layer not found' });
     }
     
-    // Get all columns except geom
     const columnsResult = await client.query(`
       SELECT column_name 
       FROM information_schema.columns 
@@ -11062,106 +11742,310 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
       ORDER BY ordinal_position
     `, [tableName]);
     
-    // Build properties selection - ambil semua kolom
-    const propsSelect = columnsResult.rows
-      .map(r => `'${r.column_name}', ${r.column_name}`)
-      .join(', ');
+    // Special handling untuk rawan_erosi - tambahkan computed column 'tingkat'
+    let propsSelect;
+    if (tableName === 'rawan_erosi') {
+      // Untuk rawan_erosi, tambahkan computed column 'tingkat' dari kls_a
+      const otherColumns = columnsResult.rows
+        .filter(r => r.column_name !== 'kls_a')
+        .map(r => `'${r.column_name}', l.${r.column_name}`)
+        .join(', ');
+      
+      propsSelect = `
+        'tingkat', CASE 
+          WHEN l.kls_a = '>480' THEN 'Sangat Tinggi'
+          WHEN l.kls_a ~ '^[0-9]+\.?[0-9]*$' THEN
+            CASE 
+              WHEN l.kls_a::numeric <= 15 THEN 'Sangat Rendah'
+              WHEN l.kls_a::numeric <= 60 THEN 'Rendah'
+              WHEN l.kls_a::numeric <= 180 THEN 'Sedang'
+              WHEN l.kls_a::numeric <= 480 THEN 'Tinggi'
+              ELSE 'Sangat Tinggi'
+            END
+          ELSE 'Sangat Tinggi'
+        END${otherColumns ? ',' : ''}
+        ${otherColumns}
+      `;
+    } else {
+      propsSelect = columnsResult.rows
+        .map(r => `'${r.column_name}', l.${r.column_name}`)
+        .join(', ');
+    }
     
-    // Tentukan toleransi simplifikasi berdasarkan zoom level
+    // Toleransi simplifikasi
     const zoomLevel = zoom ? parseInt(zoom) : 10;
     let tolerance;
     
     if (zoomLevel <= 5) {
       tolerance = 0.01;
-      console.log('Zoom level', zoomLevel, '- High simplification (tolerance:', tolerance, ')');
     } else if (zoomLevel <= 7) {
       tolerance = 0.005;
-      console.log('Zoom level', zoomLevel, '- Medium simplification (tolerance:', tolerance, ')');
     } else if (zoomLevel <= 9) {
       tolerance = 0.001;
-      console.log('Zoom level', zoomLevel, '- Low simplification (tolerance:', tolerance, ')');
     } else if (zoomLevel <= 11) {
       tolerance = 0.0005;
-      console.log('Zoom level', zoomLevel, '- Very low simplification (tolerance:', tolerance, ')');
     } else {
       tolerance = 0;
-      console.log('Zoom level', zoomLevel, '- NO simplification (full detail)');
     }
     
-    // Build WHERE clause dan geometry select
-    let whereClause = 'WHERE geom IS NOT NULL';
-    let geometrySelect;
+    console.log('Zoom level', zoomLevel, '- Tolerance:', tolerance);
     
+    // Build WHERE clause
+    let whereClause = 'WHERE l.geom IS NOT NULL';
+    let fromClause = `FROM ${tableName} l`;
+    let geometrySelect;
+    const FEATURE_LIMIT = 50000;
+    
+    // ================= Mulai perubahan/penambahan ================
+    // 1. Cek DAS Filter dengan optimasi
+    if (dasFilter) {
+      try {
+        const dasArray = JSON.parse(dasFilter);
+        if (Array.isArray(dasArray) && dasArray.length > 0) {
+          const dasPlaceholders = dasArray.map((_, i) => `$${i + 1}`).join(',');
+          
+          // OPTIMASI: Gunakan subquery untuk mendapatkan envelope DAS dulu
+          fromClause += `, (
+            SELECT 
+              nama_das,
+              geom,
+              ST_Envelope(geom) as bbox
+            FROM das_adm
+            WHERE nama_das IN (${dasPlaceholders})
+          ) b`;
+          
+          whereClause += ` AND b.nama_das IN (${dasPlaceholders})`;
+          
+          // OPTIMASI: Filter dengan bounding box dulu (lebih cepat)
+          whereClause += ` AND ST_Intersects(
+            ST_Envelope(CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END),
+            b.bbox
+          )`;
+          
+          // Lalu cek intersects yang sebenarnya
+          whereClause += ` AND ST_Intersects(
+            CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END,
+            CASE WHEN ST_SRID(b.geom) = 0 THEN ST_SetSRID(b.geom, 4326) ELSE b.geom END
+          )`;
+          
+          // SELALU CLIP - Tidak peduli zoom level
+          if (tolerance > 0) {
+            geometrySelect = `ST_AsGeoJSON(ST_Simplify(
+              ST_Intersection(
+                ST_MakeValid(CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END),
+                ST_MakeValid(CASE WHEN ST_SRID(b.geom) = 0 THEN ST_SetSRID(b.geom, 4326) ELSE b.geom END)
+              ), ${tolerance}
+            ))`;
+          } else {
+            geometrySelect = `ST_AsGeoJSON(
+              ST_Intersection(
+                ST_MakeValid(CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END),
+                ST_MakeValid(CASE WHEN ST_SRID(b.geom) = 0 THEN ST_SetSRID(b.geom, 4326) ELSE b.geom END)
+              )
+            )`;
+          }
+          
+          console.log(`Using DAS boundary clipping for ${tableName}:`, dasArray);
+          
+          // Execute query dengan DAS filter dan LIMIT
+          const queryParams = dasArray;
+          const query = `
+            SELECT 
+              ${geometrySelect} as geometry,
+              json_build_object(${propsSelect}) as properties
+            ${fromClause}
+            ${whereClause}
+            LIMIT ${FEATURE_LIMIT}
+          `;
+          
+          const result = await client.query(query, queryParams);
+          
+          const features = result.rows.map(row => ({
+            type: 'Feature',
+            geometry: JSON.parse(row.geometry),
+            properties: row.properties
+          }));
+          
+          console.log(`Returning ${features.length} clipped features for ${tableName} (DAS filter)${features.length === FEATURE_LIMIT ? ' - LIMIT REACHED' : ''}`);
+          return res.json({
+            type: 'FeatureCollection',
+            features: features,
+            limitReached: features.length === FEATURE_LIMIT
+          });
+        }
+      } catch (e) {
+        console.error('Error parsing dasFilter:', e);
+        // Jika error, lanjut ke filter berikutnya
+      }
+    }
+    
+    // 2. Cek Admin Filter dengan optimasi
+    if (adminFilter && adminLevel) {
+      try {
+        const adminArray = JSON.parse(adminFilter);
+        if (Array.isArray(adminArray) && adminArray.length > 0) {
+          
+          // Tentukan tabel dan kolom administrasi
+          let adminTable, adminColumn;
+          switch(adminLevel) {
+            case 'provinsi':
+              adminTable = 'provinsi';
+              adminColumn = 'provinsi';
+              break;
+            case 'kabupaten':
+              adminTable = 'kab_kota';
+              adminColumn = 'kab_kota';
+              break;
+            case 'kecamatan':
+              adminTable = 'kecamatan';
+              adminColumn = 'kecamatan';
+              break;
+            case 'kelurahan':
+              adminTable = 'kel_desa';
+              adminColumn = 'kel_desa';
+              break;
+            default:
+              adminTable = 'provinsi';
+              adminColumn = 'provinsi';
+          }
+          
+          const adminPlaceholders = adminArray.map((_, i) => `$${i + 1}`).join(',');
+          
+          // OPTIMASI: Gunakan subquery dengan envelope
+          fromClause += `, (
+            SELECT 
+              ${adminColumn},
+              geom,
+              ST_Envelope(geom) as bbox
+            FROM ${adminTable}
+            WHERE ${adminColumn} IN (${adminPlaceholders})
+          ) b`;
+          
+          whereClause += ` AND b.${adminColumn} IN (${adminPlaceholders})`;
+          
+          // OPTIMASI: Filter dengan bounding box dulu
+          whereClause += ` AND ST_Intersects(
+            ST_Envelope(CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END),
+            b.bbox
+          )`;
+          
+          whereClause += ` AND ST_Intersects(
+            CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END,
+            b.geom
+          )`;
+          
+          // SELALU CLIP - Tidak peduli zoom level
+          if (tolerance > 0) {
+            geometrySelect = `ST_AsGeoJSON(ST_Simplify(
+              ST_Intersection(
+                ST_MakeValid(CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END),
+                ST_MakeValid(b.geom)
+              ), ${tolerance}
+            ))`;
+          } else {
+            geometrySelect = `ST_AsGeoJSON(
+              ST_Intersection(
+                ST_MakeValid(CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END),
+                ST_MakeValid(b.geom)
+              )
+            )`;
+          }
+          
+          console.log(`Using ${adminLevel} boundary clipping for ${tableName}:`, adminArray);
+          
+          // Execute query dengan admin filter dan LIMIT
+          const queryParams = adminArray;
+          const query = `
+            SELECT 
+              ${geometrySelect} as geometry,
+              json_build_object(${propsSelect}) as properties
+            ${fromClause}
+            ${whereClause}
+            LIMIT ${FEATURE_LIMIT}
+          `;
+          
+          const result = await client.query(query, queryParams);
+          
+          const features = result.rows.map(row => ({
+            type: 'Feature',
+            geometry: JSON.parse(row.geometry),
+            properties: row.properties
+          }));
+          
+          console.log(`Returning ${features.length} clipped features for ${tableName} (${adminLevel} filter)${features.length === FEATURE_LIMIT ? ' - LIMIT REACHED' : ''}`);
+          return res.json({
+            type: 'FeatureCollection',
+            features: features,
+            limitReached: features.length === FEATURE_LIMIT
+          });
+        }
+      } catch (e) {
+        console.error('Error parsing adminFilter:', e);
+        // Jika error, lanjut ke filter berikutnya
+      }
+    }
+    // ================= Akhir perubahan/penambahan ================
+    
+    // 3. Jika tidak ada boundary filter, gunakan bounds biasa (ST_Intersects)
     if (bounds) {
       const [south, west, north, east] = bounds.split(',').map(Number);
       const boundsWKT = `POLYGON((${west} ${south}, ${east} ${south}, ${east} ${north}, ${west} ${north}, ${west} ${south}))`;
       
-      // Filter: HANYA ambil geometry yang SEPENUHNYA di dalam bounds
-      // Geometry yang sebagian keluar akan TIDAK ditampilkan sama sekali
-      whereClause += ` AND ST_Within(geom, ST_GeomFromText('${boundsWKT}', 4326))`;
+      whereClause += ` AND ST_Intersects(
+        CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END,
+        ST_GeomFromText('${boundsWKT}', 4326)
+      )`;
       
-      // Tidak perlu clip karena semua geometry sudah pasti di dalam bounds
       if (tolerance > 0) {
-        geometrySelect = `ST_AsGeoJSON(ST_Simplify(geom, ${tolerance}))`;
+        geometrySelect = `ST_AsGeoJSON(ST_Simplify(
+          ST_MakeValid(CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END),
+          ${tolerance}
+        ))`;
       } else {
-        geometrySelect = `ST_AsGeoJSON(geom)`;
+        geometrySelect = `ST_AsGeoJSON(
+          ST_MakeValid(CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END)
+        )`;
       }
       
-      console.log(`Using ST_Within for strict boundary filtering on ${tableName}`);
+      console.log(`Using bounds filtering (ST_Intersects) for ${tableName}`);
     } else {
-      // Tidak ada bounds, gunakan geometry original
+      // Tidak ada bounds sama sekali
       if (tolerance > 0) {
-        geometrySelect = `ST_AsGeoJSON(ST_Simplify(geom, ${tolerance}))`;
+        geometrySelect = `ST_AsGeoJSON(ST_Simplify(
+          ST_MakeValid(CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END),
+          ${tolerance}
+        ))`;
       } else {
-        geometrySelect = `ST_AsGeoJSON(geom)`;
+        geometrySelect = `ST_AsGeoJSON(
+          ST_MakeValid(CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END)
+        )`;
       }
     }
     
-    // Add DAS filter if provided and table has nama_das column
-    if (dasFilter) {
-      try {
-        const dasArray = JSON.parse(dasFilter);
-        
-        // Check if table has nama_das column
-        const hasNamaDasColumn = columnsResult.rows.some(r => r.column_name === 'nama_das');
-        
-        if (Array.isArray(dasArray) && dasArray.length > 0 && hasNamaDasColumn) {
-          const dasConditions = dasArray.map(das => `'${das.replace(/'/g, "''")}'`).join(', ');
-          whereClause += ` AND nama_das IN (${dasConditions})`;
-          console.log(`Applied DAS filter to ${tableName}:`, dasArray);
-        }
-      } catch (e) {
-        console.error('Error parsing dasFilter:', e);
-      }
-    }
-    
-    // Query dengan filter ST_Within (strict)
+    // Execute query tanpa boundary filter
     const query = `
       SELECT 
         ${geometrySelect} as geometry,
         json_build_object(${propsSelect}) as properties
-      FROM ${tableName}
+      ${fromClause}
       ${whereClause}
+      LIMIT ${FEATURE_LIMIT}
     `;
-    
-    console.log(`Query for ${tableName}: zoom=${zoomLevel}, tolerance=${tolerance}${tolerance === 0 ? ' (no simplification)' : ''}`);
     
     const result = await client.query(query);
     
-    // Build GeoJSON manually
     const features = result.rows.map(row => ({
       type: 'Feature',
       geometry: JSON.parse(row.geometry),
       properties: row.properties
     }));
     
-    const geojson = {
+    console.log(`Returning ${features.length} features for ${tableName}${features.length === FEATURE_LIMIT ? ' - LIMIT REACHED' : ''}`);
+    res.json({
       type: 'FeatureCollection',
-      features: features
-    };
-    
-    console.log(`Returning ${features.length} features for ${tableName}`);
-    res.json(geojson);
+      features: features,
+      limitReached: features.length === FEATURE_LIMIT
+    });
     
   } catch (error) {
     console.error('Error fetching GeoJSON:', error);
@@ -11170,6 +12054,7 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
     client.release();
   }
 });
+// ================= Akhir modifikasi ================
 
   app.get('/api/das/by-coordinates', async (req, res) => {
   const client = await pool.connect();
