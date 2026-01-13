@@ -195,7 +195,7 @@ const TentangKami = () => {
 
         {/* Footer Info */}
         <div className="mt-8 text-center text-gray-600 text-sm">
-          <p>© 2024 Pusat Pengembangan Mitigasi dan Adaptasi Bencana Hidrometeorologi Kehutanan</p>
+          <p>© 2025 Pusat Pengembangan Mitigasi dan Adaptasi Bencana Hidrometeorologi Kehutanan</p>
           <p className="mt-1">Kementerian Kehutanan Republik Indonesia</p>
         </div>
       </div>
