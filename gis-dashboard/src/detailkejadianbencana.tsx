@@ -454,31 +454,44 @@ useEffect(() => {
       
       // Create custom icon based on incident type
       const createCustomIcon = (type) => {
-        let iconSVG = '';
+        let iconContent = '';
+        let bgColor = '#3b82f6'; // default blue
+        let hoverColor = '#ef4444'; // default hover red
         
         if (type === 'banjir') {
-          iconSVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
+          bgColor = '#3b82f6'; // blue
+          hoverColor = '#ef4444'; // hover red (dari kebakaran)
+          iconContent = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
             <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>
           </svg>`;
         } else if (type === 'longsor') {
-          iconSVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
-            <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
-          </svg>`;
+          bgColor = '#f59e0b'; // orange
+          hoverColor = '#3b82f6'; // hover blue (dari banjir)
+          iconContent = `<img src="/images/landslide-svgrepo-com.svg" style="width: 16px; height: 16px; filter: brightness(0) invert(1);" />`;
         } else if (type === 'kebakaran') {
-          iconSVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
-            <path d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z"/>
-          </svg>`;
+          bgColor = '#ef4444'; // red
+          hoverColor = '#f59e0b'; // hover orange (dari longsor)
+          iconContent = `<img src="/images/fire-svgrepo-com.svg" style="width: 16px; height: 16px; filter: brightness(0) invert(1);" />`;
         }
         
         return window.L.divIcon({
           className: 'custom-detail-marker',
           html: `
-            <div class="marker-container" style="position: relative; width: 44px; height: 44px;">
+            <style>
+              .marker-container-detail-${type} .marker-bg {
+                fill: ${bgColor};
+                transition: fill 0.3s ease;
+              }
+              .marker-container-detail-${type}:hover .marker-bg {
+                fill: ${hoverColor} !important;
+              }
+            </style>
+            <div class="marker-container marker-container-detail-${type}" style="position: relative; width: 44px; height: 44px;">
               <svg class="marker-circle" width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
-                <circle class="marker-bg" cx="22" cy="22" r="20" fill="#3b82f6" stroke="white" stroke-width="3" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));"/>
+                <circle class="marker-bg" cx="22" cy="22" r="20" stroke="white" stroke-width="3" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));"/>
               </svg>
-              <div style="position: absolute; top: 12px; left: 12px; pointer-events: none;">
-                ${iconSVG}
+              <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; display: flex; align-items: center; justify-content: center;">
+                ${iconContent}
               </div>
             </div>
           `,
@@ -646,7 +659,7 @@ useEffect(() => {
           <h1 className="text-2xl font-bold text-gray-800 mb-2">Data tidak ditemukan</h1>
           <p className="text-gray-600 mb-4">Silakan kembali ke halaman kejadian</p>
           <button
-            onClick={() => navigate('/kebencanaan')}
+            onClick={() => navigate(-1)}
             className="bg-red-500 text-white px-6 py-2 rounded hover:bg-red-600 transition"
           >
             Kembali ke Halaman Kejadian

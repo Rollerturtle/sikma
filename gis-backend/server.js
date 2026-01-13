@@ -10383,7 +10383,8 @@ app.get('/api/kejadian/by-year/:year', async (req, res) => {
         featured,
         thumbnail_path,
         description,
-        images_paths
+        images_paths,
+        curah_hujan
       FROM kejadian
       ${whereClause}
       ORDER BY date DESC
@@ -10410,7 +10411,8 @@ app.get('/api/kejadian/by-year/:year', async (req, res) => {
         featured: row.featured,
         thumbnail_path: row.thumbnail_path,
         description: row.description,
-        images_paths: row.images_paths
+        images_paths: row.images_paths,
+        curah_hujan: row.curah_hujan
       }
     }));
     
@@ -10420,11 +10422,15 @@ app.get('/api/kejadian/by-year/:year', async (req, res) => {
     };
     
     console.log(`Returning ${features.length} kejadian features for year ${year}${category ? ' category ' + category : ''}`);
+    
     res.json(geojson);
     
   } catch (error) {
     console.error('Error fetching kejadian by year:', error);
-    res.status(500).json({ error: 'Failed to fetch kejadian data: ' + error.message });
+    res.status(500).json({ 
+      error: 'Failed to fetch kejadian',
+      message: error.message 
+    });
   } finally {
     client.release();
   }
@@ -10489,6 +10495,128 @@ app.patch('/api/kejadian/:id/featured', verifyToken, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Gagal mengubah status featured',
+      error: error.message
+    });
+  }
+});
+
+app.put('/api/kejadian/:id', verifyToken, upload.fields([
+  { name: 'thumbnail', maxCount: 1 },
+  { name: 'images', maxCount: 15 }
+]), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      title,
+      category,
+      incidentDate,
+      location,
+      das,
+      longitude,
+      latitude,
+      curahHujan,
+      featured,
+      description
+    } = req.body;
+
+    console.log('Updating kejadian:', id);
+    console.log('Request body:', req.body);
+
+    // Check if kejadian exists
+    const checkResult = await client.query(
+      'SELECT * FROM kejadian WHERE id = $1',
+      [id]
+    );
+
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Kejadian tidak ditemukan'
+      });
+    }
+
+    const existingKejadian = checkResult.rows[0];
+
+    // Handle file uploads
+    let thumbnailPath = existingKejadian.thumbnail_path;
+    let imagesPaths = existingKejadian.images_paths || [];
+
+    // Update thumbnail if new one uploaded
+    if (req.files && req.files['thumbnail'] && req.files['thumbnail'][0]) {
+      // Delete old thumbnail if exists
+      if (existingKejadian.thumbnail_path) {
+        const oldPath = path.join(__dirname, existingKejadian.thumbnail_path);
+        if (fs.existsSync(oldPath)) {
+          fs.unlinkSync(oldPath);
+        }
+      }
+      thumbnailPath = `/uploads/${req.files['thumbnail'][0].filename}`;
+    }
+
+    // Update additional images if new ones uploaded
+    if (req.files && req.files['images'] && req.files['images'].length > 0) {
+      // Delete old images if exists
+      if (existingKejadian.images_paths && existingKejadian.images_paths.length > 0) {
+        existingKejadian.images_paths.forEach(imgPath => {
+          const oldPath = path.join(__dirname, imgPath);
+          if (fs.existsSync(oldPath)) {
+            fs.unlinkSync(oldPath);
+          }
+        });
+      }
+      imagesPaths = req.files['images'].map(file => `/uploads/${file.filename}`);
+    }
+
+    // Update kejadian
+    const updateQuery = `
+      UPDATE kejadian 
+      SET 
+        title = $1,
+        category = $2,
+        date = $3,
+        location = $4,
+        das = $5,
+        longitude = $6,
+        latitude = $7,
+        curah_hujan = $8,
+        featured = $9,
+        description = $10,
+        thumbnail_path = $11,
+        images_paths = $12,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $13
+      RETURNING *
+    `;
+
+    const values = [
+      title,
+      category,
+      incidentDate,
+      location,
+      das || null,
+      parseFloat(longitude),
+      parseFloat(latitude),
+      curahHujan ? parseFloat(curahHujan) : null,
+      featured !== undefined ? (featured === 'true' || featured === true) : existingKejadian.featured,
+      description || null,
+      thumbnailPath,
+      imagesPaths,
+      id
+    ];
+
+    const result = await client.query(updateQuery, values);
+
+    res.json({
+      success: true,
+      message: 'Kejadian berhasil diupdate',
+      data: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error('Error updating kejadian:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Gagal update kejadian',
       error: error.message
     });
   }
@@ -11717,11 +11845,7 @@ function sendProgress(tableName, progress, status, done = false) {
 //   }
 // });
 
-// ================= Modifikasi endpoint /api/layers/:tableName/geojson ================
-// Ganti endpoint yang ada (line 11013) dengan ini:
-
-
-
+// ================= Endpoint lengkap yang diganti ================
 app.get('/api/layers/:tableName/geojson', async (req, res) => {
   const client = await pool.connect();
   
@@ -11746,10 +11870,12 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
       ORDER BY ordinal_position
     `, [tableName]);
     
-    // Special handling untuk rawan_erosi - tambahkan computed column 'tingkat'
+    // Special handling untuk rawan_erosi dan tutupan_lahan
     let propsSelect;
+    let baseFromClause = `FROM ${tableName} l`;
+    let needsMapping = false;
+    
     if (tableName === 'rawan_erosi') {
-      // Untuk rawan_erosi, tambahkan computed column 'tingkat' dari kls_a
       const otherColumns = columnsResult.rows
         .filter(r => r.column_name !== 'kls_a')
         .map(r => `'${r.column_name}', l.${r.column_name}`)
@@ -11770,6 +11896,13 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
         END${otherColumns ? ',' : ''}
         ${otherColumns}
       `;
+    } else if (tableName === 'tutupan_lahan') {
+      needsMapping = true;
+      const otherColumns = columnsResult.rows
+        .map(r => `'${r.column_name}', l.${r.column_name}`)
+        .join(', ');
+      
+      propsSelect = `'deskripsi_domain', COALESCE(m.deskripsi_domain, '')${otherColumns ? ',' : ''} ${otherColumns}`;
     } else {
       propsSelect = columnsResult.rows
         .map(r => `'${r.column_name}', l.${r.column_name}`)
@@ -11778,29 +11911,16 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
     
     // Toleransi simplifikasi
     const zoomLevel = zoom ? parseInt(zoom) : 10;
-    let tolerance;
-    
-    if (zoomLevel <= 5) {
-      tolerance = 0.01;
-    } else if (zoomLevel <= 7) {
-      tolerance = 0.005;
-    } else if (zoomLevel <= 9) {
-      tolerance = 0.001;
-    } else if (zoomLevel <= 11) {
-      tolerance = 0.0005;
-    } else {
-      tolerance = 0;
-    }
+    let tolerance = 0;
     
     console.log('Zoom level', zoomLevel, '- Tolerance:', tolerance);
     
     // Build WHERE clause
     let whereClause = 'WHERE l.geom IS NOT NULL';
-    let fromClause = `FROM ${tableName} l`;
+    let fromClause = baseFromClause;
     let geometrySelect;
-    const FEATURE_LIMIT = 100000;
+    const FEATURE_LIMIT = 50000;
     
-    // ================= Mulai perubahan/penambahan ================
     // 1. Cek DAS Filter dengan optimasi
     if (dasFilter) {
       try {
@@ -11808,7 +11928,11 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
         if (Array.isArray(dasArray) && dasArray.length > 0) {
           const dasPlaceholders = dasArray.map((_, i) => `$${i + 1}`).join(',');
           
-          // OPTIMASI: Gunakan subquery untuk mendapatkan envelope DAS dulu
+          // Add mapping join if needed
+          if (needsMapping) {
+            fromClause = `FROM ${tableName} l LEFT JOIN mapping_penutupan_lahan m ON CAST(l.pl2024_id AS TEXT) = CAST(m.kode_domain AS TEXT)`;
+          }
+          
           fromClause += `, (
             SELECT 
               nama_das,
@@ -11819,44 +11943,55 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
           ) b`;
           
           whereClause += ` AND b.nama_das IN (${dasPlaceholders})`;
-          
-          // OPTIMASI: Filter dengan bounding box dulu (lebih cepat)
           whereClause += ` AND ST_Intersects(
             ST_Envelope(CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END),
             b.bbox
           )`;
-          
-          // Lalu cek intersects yang sebenarnya
           whereClause += ` AND ST_Intersects(
             CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END,
             CASE WHEN ST_SRID(b.geom) = 0 THEN ST_SetSRID(b.geom, 4326) ELSE b.geom END
           )`;
           
-          // SELALU CLIP - Tidak peduli zoom level
+          // Calculate clipped geometry
+          let clippedGeometry;
           if (tolerance > 0) {
-            geometrySelect = `ST_AsGeoJSON(ST_Simplify(
+            clippedGeometry = `ST_Simplify(
               ST_Intersection(
                 ST_MakeValid(CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END),
                 ST_MakeValid(CASE WHEN ST_SRID(b.geom) = 0 THEN ST_SetSRID(b.geom, 4326) ELSE b.geom END)
               ), ${tolerance}
-            ))`;
-          } else {
-            geometrySelect = `ST_AsGeoJSON(
-              ST_Intersection(
-                ST_MakeValid(CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END),
-                ST_MakeValid(CASE WHEN ST_SRID(b.geom) = 0 THEN ST_SetSRID(b.geom, 4326) ELSE b.geom END)
-              )
             )`;
+          } else {
+            clippedGeometry = `ST_Intersection(
+              ST_MakeValid(CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END),
+              ST_MakeValid(CASE WHEN ST_SRID(b.geom) = 0 THEN ST_SetSRID(b.geom, 4326) ELSE b.geom END)
+            )`;
+          }
+          
+          geometrySelect = `ST_AsGeoJSON(${clippedGeometry})`;
+          
+          // Calculate area of clipped geometry
+          const clippedAreaSelect = `ST_Area(${clippedGeometry}::geography) / 10000`;
+          
+          // Modify propsSelect to replace luas_ha/luas_total with calculated area
+          let modifiedPropsSelect = propsSelect;
+          
+          if (tableName === 'lahan_kritis' || tableName === 'rawan_erosi' || 
+              tableName === 'rawan_longsor' || tableName === 'rawan_limpasan' || 
+              tableName === 'rawan_karhutla') {
+            modifiedPropsSelect = propsSelect.replace(/'luas_ha',\s*l\.luas_ha/g, `'luas_ha', ${clippedAreaSelect}`);
+          } else if (tableName === 'tutupan_lahan') {
+            // Untuk tutupan lahan juga perlu update luas_total jika ada
+            modifiedPropsSelect = propsSelect.replace(/'luas_total',\s*l\.luas_total/g, `'luas_total', ${clippedAreaSelect}`);
           }
           
           console.log(`Using DAS boundary clipping for ${tableName}:`, dasArray);
           
-          // Execute query dengan DAS filter dan LIMIT
           const queryParams = dasArray;
           const query = `
             SELECT 
               ${geometrySelect} as geometry,
-              json_build_object(${propsSelect}) as properties
+              json_build_object(${modifiedPropsSelect}) as properties
             ${fromClause}
             ${whereClause}
             LIMIT ${FEATURE_LIMIT}
@@ -11879,17 +12014,15 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
         }
       } catch (e) {
         console.error('Error parsing dasFilter:', e);
-        // Jika error, lanjut ke filter berikutnya
       }
     }
     
     // 2. Cek Admin Filter dengan optimasi
-    if (adminFilter && adminLevel) {
+   if (adminFilter && adminLevel) {
       try {
         const adminArray = JSON.parse(adminFilter);
         if (Array.isArray(adminArray) && adminArray.length > 0) {
           
-          // Tentukan tabel dan kolom administrasi
           let adminTable, adminColumn;
           switch(adminLevel) {
             case 'provinsi':
@@ -11915,7 +12048,11 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
           
           const adminPlaceholders = adminArray.map((_, i) => `$${i + 1}`).join(',');
           
-          // OPTIMASI: Gunakan subquery dengan envelope
+          // Add mapping join if needed
+          if (needsMapping) {
+            fromClause = `FROM ${tableName} l LEFT JOIN mapping_penutupan_lahan m ON CAST(l.pl2024_id AS TEXT) = CAST(m.kode_domain AS TEXT)`;
+          }
+          
           fromClause += `, (
             SELECT 
               ${adminColumn},
@@ -11926,43 +12063,55 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
           ) b`;
           
           whereClause += ` AND b.${adminColumn} IN (${adminPlaceholders})`;
-          
-          // OPTIMASI: Filter dengan bounding box dulu
           whereClause += ` AND ST_Intersects(
             ST_Envelope(CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END),
             b.bbox
           )`;
-          
           whereClause += ` AND ST_Intersects(
             CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END,
             b.geom
           )`;
           
-          // SELALU CLIP - Tidak peduli zoom level
+          // Calculate clipped geometry
+          let clippedGeometry;
           if (tolerance > 0) {
-            geometrySelect = `ST_AsGeoJSON(ST_Simplify(
+            clippedGeometry = `ST_Simplify(
               ST_Intersection(
                 ST_MakeValid(CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END),
                 ST_MakeValid(b.geom)
               ), ${tolerance}
-            ))`;
-          } else {
-            geometrySelect = `ST_AsGeoJSON(
-              ST_Intersection(
-                ST_MakeValid(CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END),
-                ST_MakeValid(b.geom)
-              )
             )`;
+          } else {
+            clippedGeometry = `ST_Intersection(
+              ST_MakeValid(CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END),
+              ST_MakeValid(b.geom)
+            )`;
+          }
+          
+          geometrySelect = `ST_AsGeoJSON(${clippedGeometry})`;
+          
+          // Calculate area of clipped geometry and replace luas_ha in properties
+          // Area dihitung dalam meter persegi, convert ke hektar (/ 10000)
+          const clippedAreaSelect = `ST_Area(${clippedGeometry}::geography) / 10000`;
+          
+          // Modify propsSelect to replace luas_ha with calculated area
+          let modifiedPropsSelect = propsSelect;
+          
+          // Replace luas_ha with calculated area for tables that have luas_ha field
+          if (tableName === 'lahan_kritis' || tableName === 'rawan_erosi' || 
+              tableName === 'rawan_longsor' || tableName === 'rawan_limpasan' || 
+              tableName === 'rawan_karhutla') {
+            // Remove luas_ha from original propsSelect and add calculated one
+            modifiedPropsSelect = propsSelect.replace(/'luas_ha',\s*l\.luas_ha/g, `'luas_ha', ${clippedAreaSelect}`);
           }
           
           console.log(`Using ${adminLevel} boundary clipping for ${tableName}:`, adminArray);
           
-          // Execute query dengan admin filter dan LIMIT
           const queryParams = adminArray;
           const query = `
             SELECT 
               ${geometrySelect} as geometry,
-              json_build_object(${propsSelect}) as properties
+              json_build_object(${modifiedPropsSelect}) as properties
             ${fromClause}
             ${whereClause}
             LIMIT ${FEATURE_LIMIT}
@@ -11985,12 +12134,15 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
         }
       } catch (e) {
         console.error('Error parsing adminFilter:', e);
-        // Jika error, lanjut ke filter berikutnya
       }
     }
-    // ================= Akhir perubahan/penambahan ================
     
     // 3. Jika tidak ada boundary filter, gunakan bounds biasa (ST_Intersects)
+    // Add mapping join if needed
+    if (needsMapping) {
+      fromClause = `FROM ${tableName} l LEFT JOIN mapping_penutupan_lahan m ON CAST(l.pl2024_id AS TEXT) = CAST(m.kode_domain AS TEXT)`;
+    }
+    
     if (bounds) {
       const [south, west, north, east] = bounds.split(',').map(Number);
       const boundsWKT = `POLYGON((${west} ${south}, ${east} ${south}, ${east} ${north}, ${west} ${north}, ${west} ${south}))`;
@@ -12013,7 +12165,6 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
       
       console.log(`Using bounds filtering (ST_Intersects) for ${tableName}`);
     } else {
-      // Tidak ada bounds sama sekali
       if (tolerance > 0) {
         geometrySelect = `ST_AsGeoJSON(ST_Simplify(
           ST_MakeValid(CASE WHEN ST_SRID(l.geom) = 0 THEN ST_SetSRID(l.geom, 4326) ELSE l.geom END),
@@ -12026,7 +12177,6 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
       }
     }
     
-    // Execute query tanpa boundary filter
     const query = `
       SELECT 
         ${geometrySelect} as geometry,
@@ -12058,7 +12208,8 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
     client.release();
   }
 });
-// ================= Akhir modifikasi ================
+// ================= Akhir endpoint ================
+
 
   app.get('/api/das/by-coordinates', async (req, res) => {
   const client = await pool.connect();

@@ -31,6 +31,9 @@ const Kebencanaan = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingKejadianId, setEditingKejadianId] = useState(null);
+
   // Form data untuk modal tambah kejadian
   const [formData, setFormData] = useState({
   thumbnail: null,
@@ -52,6 +55,53 @@ const Kebencanaan = () => {
   rainfallError: '',
   featured: true
 });
+
+  const handleEditKejadian = async (incident: any) => {
+  // Set edit mode
+  setIsEditMode(true);
+  setEditingKejadianId(incident.id);
+  
+  // Reverse mapping category ke disaster type
+  const reverseCategoryMapping = {
+    'Banjir': 'Banjir',
+    'Tanah Longsor dan Erosi': 'Longsor',
+    'Kebakaran Hutan dan Kekeringan': 'Kebakaran'
+  };
+  
+  // Populate form with existing data
+  setFormData({
+    title: incident.title || '',
+    description: incident.description || '',
+    incidentDate: incident.date || '',
+    lokasi: incident.location || '',
+    disasterType: reverseCategoryMapping[incident.category] || incident.category || '',
+    das: incident.das || '',
+    longitude: incident.longitude?.toString() || '',
+    latitude: incident.latitude?.toString() || '',
+    curahHujan: incident.curah_hujan || null,
+    isLoadingRainfall: false,
+    featured: incident.featured || false,
+    thumbnail: null, // Will show preview dari existing
+    thumbnailPreview: incident.thumbnail_path ? `${API_URL}${incident.thumbnail_path}` : null,
+    images: [], // Will show preview dari existing
+  });
+  
+  // Set existing images preview
+  if (incident.images_paths && incident.images_paths.length > 0) {
+    // Convert existing image paths to preview URLs
+    const existingImagePreviews = incident.images_paths.map(path => `${API_URL}${path}`);
+    // You can store these in a separate state for preview if needed
+  }
+  
+  // Trigger DAS loading based on location if needed
+  if (incident.location) {
+    // DAS akan auto-load dari useEffect yang sudah ada
+  }
+  
+  // Open modal
+  setShowAddModal(true);
+};
+
 
 // Tambahkan state untuk DAS options
 const [dasOptions, setDasOptions] = useState<string[]>([]);
@@ -228,84 +278,96 @@ const fetchDasByCoordinates = async (longitude: number, latitude: number) => {
 
   // Handle modal form submit
   const handleModalSubmit = async (e) => {
-    e.preventDefault();
+  e.preventDefault();
+  
+  console.log('Form submitted!');
+  
+  try {
+    const token = localStorage.getItem('adminToken');
     
-    console.log('Form submitted!');
+    // Mapping disaster type
+    const categoryMapping = {
+      'Banjir': 'Banjir',
+      'Longsor': 'Tanah Longsor dan Erosi',
+      'Kebakaran': 'Kebakaran Hutan dan Kekeringan'
+    };
     
-    try {
-      const token = localStorage.getItem('adminToken');
-      
-      // Mapping disaster type
-      const categoryMapping = {
-        'Banjir': 'Banjir',
-        'Longsor': 'Tanah Longsor dan Erosi',
-        'Kebakaran': 'Kebakaran Hutan dan Kekeringan'
-      };
-      
-      // Gunakan FormData untuk upload file
-      const formDataToSend = new FormData();
-      formDataToSend.append('title', formData.title);
-      formDataToSend.append('category', categoryMapping[formData.disasterType] || formData.disasterType);
-      formDataToSend.append('incidentDate', formData.incidentDate);
-      formDataToSend.append('location', formData.lokasi);
-      formDataToSend.append('das', formData.das || '');
-      formDataToSend.append('longitude', formData.longitude);
-      formDataToSend.append('latitude', formData.latitude);
-      formDataToSend.append('curahHujan', formData.curahHujan !== null ? formData.curahHujan.toString() : '');
-      formDataToSend.append('featured', formData.featured);
-      formDataToSend.append('description', formData.description || '');
-      
-      // Append thumbnail
-      if (formData.thumbnail) {
-        formDataToSend.append('thumbnail', formData.thumbnail);
-      }
-      
-      // Append multiple images
-      formData.images.forEach((image) => {
-        formDataToSend.append('images', image);
-      });
-      
-      const response = await fetch(`${API_URL}/api/kejadian/add`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-          // JANGAN set Content-Type, biar browser set otomatis untuk FormData
-        },
-        body: formDataToSend
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        alert('Kejadian berhasil ditambahkan!');
-        setShowAddModal(false);
-        setFormData({
-          thumbnail: null,
-          thumbnailPreview: null,
-          images: [],
-          title: '',
-          description: '',
-          incidentDate: '',
-          lokasi: '',
-          disasterType: '',
-          das: '',
-          longitude: '',
-          latitude: '',
-          curahHujan: null,
-          isLoadingRainfall: false,
-          featured: true
-        });
-        setDasOptions([]);
-        setIsLoadingDas(false);
-        fetchIncidents();
-      } else {
-        alert('Gagal menambahkan kejadian: ' + data.message);
-      }
-    } catch (error) {
-      console.error('Submit error:', error);
-      alert('Terjadi kesalahan saat menambahkan kejadian: ' + error.message);
+    // Gunakan FormData untuk upload file
+    const formDataToSend = new FormData();
+    formDataToSend.append('title', formData.title);
+    formDataToSend.append('category', categoryMapping[formData.disasterType] || formData.disasterType);
+    formDataToSend.append('incidentDate', formData.incidentDate);
+    formDataToSend.append('location', formData.lokasi);
+    formDataToSend.append('das', formData.das || '');
+    formDataToSend.append('longitude', formData.longitude);
+    formDataToSend.append('latitude', formData.latitude);
+    formDataToSend.append('curahHujan', formData.curahHujan !== null ? formData.curahHujan.toString() : '');
+    formDataToSend.append('featured', formData.featured);
+    formDataToSend.append('description', formData.description || '');
+    
+    // Append thumbnail (hanya jika ada file baru)
+    if (formData.thumbnail) {
+      formDataToSend.append('thumbnail', formData.thumbnail);
     }
-  };
+    
+    // Append multiple images (hanya jika ada file baru)
+    formData.images.forEach((image) => {
+      formDataToSend.append('images', image);
+    });
+    
+    // Determine endpoint and method based on mode
+    const url = isEditMode 
+      ? `${API_URL}/api/kejadian/${editingKejadianId}`
+      : `${API_URL}/api/kejadian/add`;
+    
+    const method = isEditMode ? 'PUT' : 'POST';
+    
+    const response = await fetch(url, {
+      method: method,
+      headers: {
+        'Authorization': `Bearer ${token}`
+        // JANGAN set Content-Type, biar browser set otomatis untuk FormData
+      },
+      body: formDataToSend
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      alert(isEditMode ? 'Kejadian berhasil diupdate!' : 'Kejadian berhasil ditambahkan!');
+      setShowAddModal(false);
+      
+      // Reset form
+      setFormData({
+        thumbnail: null,
+        thumbnailPreview: null,
+        images: [],
+        title: '',
+        description: '',
+        incidentDate: '',
+        lokasi: '',
+        disasterType: '',
+        das: '',
+        longitude: '',
+        latitude: '',
+        curahHujan: null,
+        isLoadingRainfall: false,
+        featured: true
+      });
+      setDasOptions([]);
+      setIsLoadingDas(false);
+      setIsEditMode(false);
+      setEditingKejadianId(null);
+      
+      fetchIncidents();
+    } else {
+      alert((isEditMode ? 'Gagal update kejadian: ' : 'Gagal menambahkan kejadian: ') + data.message);
+    }
+  } catch (error) {
+    console.error('Submit error:', error);
+    alert((isEditMode ? 'Terjadi kesalahan saat update kejadian: ' : 'Terjadi kesalahan saat menambahkan kejadian: ') + error.message);
+  }
+};
 
   useEffect(() => {
     fetchIncidents();
@@ -1146,31 +1208,44 @@ coordinates: [-6.2900, 106.7200],
     markerClusterGroupRef.current.clearLayers();
 
     const createCustomIcon = (type) => {
-      let iconSVG = '';
+      let iconContent = '';
+      let bgColor = '#3b82f6'; // default blue
+      let hoverColor = '#ef4444'; // default hover red
       
       if (type === 'banjir') {
-        iconSVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
+        bgColor = '#3b82f6'; // blue
+        hoverColor = '#ef4444'; // hover red (dari kebakaran)
+        iconContent = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
           <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>
         </svg>`;
       } else if (type === 'longsor') {
-        iconSVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
-          <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
-        </svg>`;
+        bgColor = '#f59e0b'; // orange
+        hoverColor = '#3b82f6'; // hover blue (dari banjir)
+        iconContent = `<img src="/images/landslide-svgrepo-com.svg" style="width: 16px; height: 16px; filter: brightness(0) invert(1);" />`;
       } else if (type === 'kebakaran') {
-        iconSVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
-          <path d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z"/>
-        </svg>`;
+        bgColor = '#ef4444'; // red
+        hoverColor = '#f59e0b'; // hover orange (dari longsor)
+        iconContent = `<img src="/images/fire-svgrepo-com.svg" style="width: 16px; height: 16px; filter: brightness(0) invert(1);" />`;
       }
       
       return window.L.divIcon({
         className: 'custom-incident-marker',
         html: `
-          <div class="marker-container" style="position: relative; width: 44px; height: 44px; cursor: pointer;">
+          <style>
+            .marker-container-${type} .marker-bg {
+              fill: ${bgColor};
+              transition: fill 0.3s ease;
+            }
+            .marker-container-${type}:hover .marker-bg {
+              fill: ${hoverColor} !important;
+            }
+          </style>
+          <div class="marker-container marker-container-${type}" style="position: relative; width: 44px; height: 44px; cursor: pointer;">
             <svg class="marker-circle" width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
-              <circle class="marker-bg" cx="22" cy="22" r="20" fill="#3b82f6" stroke="white" stroke-width="3" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3)); transition: fill 0.2s ease;"/>
+              <circle class="marker-bg" cx="22" cy="22" r="20" stroke="white" stroke-width="3" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));"/>
             </svg>
-            <div style="position: absolute; top: 12px; left: 12px; pointer-events: none;">
-              ${iconSVG}
+            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; display: flex; align-items: center; justify-content: center;">
+              ${iconContent}
             </div>
           </div>
         `,
@@ -1415,9 +1490,18 @@ if (filteredForMarkers.length > 0 && !mapBounds) {
                       navigate('/kebencanaan');
                       setShowMenuDropdown(false);
                     }}
-                    className="px-4 py-3 hover:bg-orange-50 cursor-pointer text-gray-700 font-medium"
+                   className="px-4 py-3 hover:bg-orange-50 cursor-pointer text-gray-700 font-medium border-b border-gray-200"
                   >
                     Kejadian
+                  </div>
+                  <div
+                    onClick={() => {
+                      navigate('/tentang-kami');
+                      setShowMenuDropdown(false);
+                    }}
+                    className="px-4 py-3 hover:bg-orange-50 cursor-pointer text-gray-700 font-medium"
+                  >
+                    Tentang Kami
                   </div>
                 </div>
               </>
@@ -1876,6 +1960,16 @@ if (filteredForMarkers.length > 0 && !mapBounds) {
                       {/* ADMIN CONTROLS - hanya muncul jika logged in */}
                       {isAuthenticated && (
                         <div className="p-3 border-t border-gray-200 bg-gray-50 flex gap-2">
+                          {/* Edit Button */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleEditKejadian(incident);
+                            }}
+                            className="flex-1 px-3 py-1.5 bg-blue-100 text-blue-600 rounded text-xs font-medium hover:bg-blue-200 transition"
+                          >
+                            ✏️ Edit
+                          </button>
                           {/* Toggle Featured */}
                           <button
                             onClick={(e) => {
@@ -1948,6 +2042,15 @@ if (filteredForMarkers.length > 0 && !mapBounds) {
                       {/* ADMIN CONTROLS - hanya muncul jika logged in */}
                       {isAuthenticated && (
                         <div className="p-3 border-t border-gray-200 bg-gray-50 flex gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleEditKejadian(incident);
+                            }}
+                            className="flex-1 px-4 py-2 bg-blue-100 text-blue-600 rounded text-sm font-medium hover:bg-blue-200 transition"
+                          >
+                            ✏️ Edit
+                          </button>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -2075,7 +2178,7 @@ if (filteredForMarkers.length > 0 && !mapBounds) {
       <div className="fixed inset-0 bg-black/75 bg-opacity-50 flex justify-center items-center z-[10000] p-4 overflow-y-auto" onClick={() => setShowAddModal(false)}>
         <div className="bg-white rounded-lg p-6 w-full max-w-2xl shadow-lg my-8" onClick={(e) => e.stopPropagation()}>
           <div className="flex justify-between items-center mb-4 pb-3 border-b border-gray-200">
-            <h3 className="text-xl font-semibold text-gray-800">Tambah Laporan Bencana</h3>
+            <h3 className="text-xl font-semibold text-gray-800">{isEditMode ? 'Edit Laporan Bencana' : 'Tambah Laporan Bencana'}</h3>
             <button onClick={() => {
     setShowAddModal(false);
     // Reset form data
@@ -2457,6 +2560,8 @@ if (filteredForMarkers.length > 0 && !mapBounds) {
               <button 
               onClick={() => {
                 setShowAddModal(false);
+                setIsEditMode(false);
+                setEditingKejadianId(null);
                 setFormData({
                   thumbnail: null,
                   thumbnailPreview: null,
@@ -2478,13 +2583,32 @@ if (filteredForMarkers.length > 0 && !mapBounds) {
                 Batal
               </button>
               <button type="submit" className="flex-1 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition">
-                Simpan
+                {isEditMode ? 'Update' : 'Simpan'}
               </button>
             </div>
           </form>
         </div>
       </div>
     )}
+
+    {/* Header Trademark */}
+      <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-[2200] pointer-events-none">
+        <div className="flex items-center gap-3  backdrop-blur-sm px-4 py-2 rounded-lg">
+          <img 
+            src="/images/logo_kehutanan_png.png" 
+            alt="Logo Kehutanan" 
+            className="h-10 w-10 object-contain"
+          />
+          <div className="flex flex-col">
+            <span className="text-xs font-bold text-gray-800">
+              Sistem Informasi Bencana Hidrometeorologi Kehutanan
+            </span>
+            <span className="text-[10px] text-gray-600">
+              Pusat Pengembangan Mitigasi dan Adaptasi Bencana Hidrometeorologi Kehutanan 2025
+            </span>
+          </div>
+        </div>
+      </div>
 
     </>
   );

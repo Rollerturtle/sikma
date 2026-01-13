@@ -16,6 +16,10 @@ const Kerawanan = () => {
   const [loadingLayerNames, setLoadingLayerNames] = useState<Set<string>>(new Set());
   const [layerError, setLayerError] = useState<string>('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const layerCacheRef = useRef<Map<string, any>>(new Map());
+  const [hoveredLayerKey, setHoveredLayerKey] = useState<string | null>(null);
+  const [hoveredLayerType, setHoveredLayerType] = useState<string | null>(null);
+  const [hoveredLayerColor, setHoveredLayerColor] = useState<string | null>(null);
   const [selectedAreas, setSelectedAreas] = useState<Array<{
     label: string;
     level: 'provinsi' | 'kabupaten' | 'kecamatan' | 'kelurahan';
@@ -141,11 +145,38 @@ const [availableLayers, setAvailableLayers] = useState<{
     rawanKarhutla: new Map()
   });
 
-  const tutupanLahanColors = [
-    '#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', 
-    '#EC4899', '#14B8A6', '#F97316', '#6366F1', '#84CC16',
-    '#06B6D4', '#A855F7', '#EAB308', '#22C55E', '#0EA5E9'
-  ];
+  // const tutupanLahanColors = [
+  //   '#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', 
+  //   '#EC4899', '#14B8A6', '#F97316', '#6366F1', '#84CC16',
+  //   '#06B6D4', '#A855F7', '#EAB308', '#22C55E', '#0EA5E9'
+  // ];
+
+  const tutupanLahanColors = {
+    'Hutan Lahan Kering Primer': '#00B050',
+    'Hutan Lahan Kering Sekunder': '#92D050',
+    'Hutan Rawa Primer': '#00B050',
+    'Hutan Rawa Sekunder': '#92D050',
+    'Hutan Mangrove Primer': '#70AD47',
+    'Hutan Mangrove Sekunder': '#A9D08E',
+    'Savana': '#FFFF00',
+    'Hutan Tanaman': '#C6E0B4',
+    'Perkebunan': '#E2EFDA',
+    'Pertanian Lahan Kering': '#FFFF00',
+    'Pertanian Lahan Kering Campur': '#FFFF00',
+    'Permukiman Transmigrasi': '#548235',
+    'Sawah': '#00FFFF',
+    'Tambak': '#00B0F0',
+    'Tanah Terbuka': '#FFC000',
+    'Lahan Terbuka': '#FFC000',  // Tambahkan alias untuk Lahan Terbuka
+    'Pertambangan': '#C00000',
+    'Permukiman': '#7F7F7F',
+    'Bandara/ Pelabuhan': '#FF00FF',
+    'Rawa': '#BF8F00',
+    'Awan': '#D9D9D9',
+    'Semak Belukar': '#FFC000',
+    'Semak Belukar Rawa': '#FFC000',
+    'Tubuh Air': '#0070C0'
+  };
 
   // Perbesar geologiColors menjadi 30+ warna
   const geologiColors = [
@@ -539,7 +570,7 @@ const loadLayerInBounds = async (tableName: string, customBounds?: [[number, num
     }
     
     // Build URL dengan filter administrasi/DAS
-    let url = `${API_URL}/api/layers/${tableName}/geojson?bounds=${boundsString}&zoom=${zoom}`;
+    let url = `${API_URL}/api/layers/${tableName}/geojson?bounds=${boundsString}`;
     
     // Prioritas: DAS > Administrasi
     if (selectedDas.length > 0) {
@@ -614,19 +645,28 @@ const loadLayerInBounds = async (tableName: string, customBounds?: [[number, num
     if (tableName === 'tutupan_lahan') {
       const fetchedData = await fetchTutupanLahanData();
       
-      const uniquePl2024Ids = new Set<string>();
-      geojsonData.features.forEach((feature: any) => {
-        uniquePl2024Ids.add(String(feature.properties.pl2024_id));
+      // Create mapping from deskripsi_domain to color
+      const deskripsiToColorMap = new Map<string, string>();
+      fetchedData.forEach((item: any) => {
+        const color = tutupanLahanColors[item.deskripsi_domain] || '#999999';
+        if (!deskripsiToColorMap.has(item.deskripsi_domain)) {
+          deskripsiToColorMap.set(item.deskripsi_domain, color);
+        }
       });
       
-      const sortedIds = Array.from(uniquePl2024Ids).sort();
-      sortedIds.forEach((pl2024_id) => {
-        if (!colorMappingRef.current.tutupanLahan.has(pl2024_id)) {
-          const colorIndex = colorMappingRef.current.tutupanLahan.size;
-          const color = tutupanLahanColors[colorIndex % tutupanLahanColors.length];
-          colorMappingRef.current.tutupanLahan.set(pl2024_id, color);
+      // Assign colors based on deskripsi_domain from GeoJSON properties
+      geojsonData.features.forEach((feature: any) => {
+        const deskripsi = feature.properties.deskripsi_domain;
+        const pl2024_id = String(feature.properties.pl2024_id);
+        
+        // Try to get color from map first, then directly from tutupanLahanColors
+        let color = deskripsiToColorMap.get(deskripsi);
+        if (!color) {
+          color = tutupanLahanColors[deskripsi] || '#999999';
         }
-        colorMap.set(pl2024_id, colorMappingRef.current.tutupanLahan.get(pl2024_id)!);
+        
+        colorMap.set(pl2024_id, color);
+        colorMappingRef.current.tutupanLahan.set(pl2024_id, color);
       });
       
     } else if (tableName === 'geologi') {
@@ -737,6 +777,7 @@ const loadLayerInBounds = async (tableName: string, customBounds?: [[number, num
       
       kritisArray.forEach(item => {
         colorMap.set(item.kritis, item.color!);
+        colorMappingRef.current.lahanKritis.set(item.kritis, item.color!);
       });
       
     } else if (tableName === 'rawan_erosi') {
@@ -766,6 +807,7 @@ const loadLayerInBounds = async (tableName: string, customBounds?: [[number, num
       
       erosiArray.forEach(item => {
         colorMap.set(item.tingkat, item.color!);
+        colorMappingRef.current.rawanErosi.set(item.tingkat, item.color!);
       });
       
     } else if (tableName === 'rawan_longsor') {
@@ -797,6 +839,7 @@ const loadLayerInBounds = async (tableName: string, customBounds?: [[number, num
       
       longsorArray.forEach(item => {
         colorMap.set(item.tingkat, item.color!);
+        colorMappingRef.current.rawanLongsor.set(item.tingkat, item.color!);
       });
       
     } else if (tableName === 'rawan_limpasan') {
@@ -826,6 +869,7 @@ const loadLayerInBounds = async (tableName: string, customBounds?: [[number, num
       
       limpasanArray.forEach(item => {
         colorMap.set(item.tingkat, item.color!);
+        colorMappingRef.current.rawanLimpasan.set(item.tingkat, item.color!);
       });
       
     } else if (tableName === 'rawan_karhutla') {
@@ -855,6 +899,7 @@ const loadLayerInBounds = async (tableName: string, customBounds?: [[number, num
       
       karhutlaArray.forEach(item => {
         colorMap.set(item.tingkat, item.color!);
+        colorMappingRef.current.rawanKarhutla.set(item.tingkat, item.color!);
       });
     }
     
@@ -1005,6 +1050,41 @@ const loadLayerInBounds = async (tableName: string, customBounds?: [[number, num
     });
     
     layerGroup.addTo(mapInstanceRef.current);
+
+    layerCacheRef.current.set(tableName, layerGroup);
+    
+    // Cek apakah layer ini punya bottom tab
+    const hasBottomTab = layersWithBottomTabs.includes(tableName);
+    
+    // Jika layer punya bottom tab, hanya tampilkan jika sesuai dengan activeBottomTab
+    if (hasBottomTab) {
+      // Mapping dari tableName ke tab id
+      const tabMapping: Record<string, string> = {
+        'tutupan_lahan': 'tutupanLahan',
+        'jenis_tanah': 'jenisTanah',
+        'geologi': 'geologi',
+        'lahan_kritis': 'lahan_kritis',
+        'rawan_erosi': 'rawan_erosi',
+        'rawan_longsor': 'rawan_longsor',
+        'rawan_limpasan': 'rawan_limpasan',
+        'rawan_karhutla': 'rawan_karhutla'
+      };
+      
+      const correspondingTab = tabMapping[tableName];
+      
+      // Hanya add ke map jika tab nya sedang aktif
+      if (correspondingTab === activeBottomTab) {
+        layerGroup.addTo(mapInstanceRef.current);
+        console.log(`✅ Layer "${tableName}" ditampilkan (sesuai active tab)`);
+      } else {
+        console.log(`💾 Layer "${tableName}" disimpan di cache (tab tidak aktif)`);
+      }
+    } else {
+      // Layer tanpa bottom tab langsung ditampilkan
+      layerGroup.addTo(mapInstanceRef.current);
+      console.log(`✅ Layer "${tableName}" ditampilkan (no bottom tab)`);
+    }
+
     layerGroupsRef.current[tableName] = layerGroup;
 
     const filterType = selectedDas.length > 0 ? 'DAS filtering' : 
@@ -1097,6 +1177,114 @@ useEffect(() => {
   checkExistingSession();
 }, []);
 
+useEffect(() => {
+    if (!mapInstanceRef.current || !window.L) return;
+
+    // List layer yang merupakan data layer (bukan boundary)
+    const dataLayers = [
+      'tutupan_lahan', 
+      'geologi', 
+      'jenis_tanah', 
+      'lahan_kritis', 
+      'rawan_erosi', 
+      'rawan_longsor', 
+      'rawan_limpasan', 
+      'rawan_karhutla'
+    ];
+
+    // Jika ada layer yang sebelumnya di-hover, reset hanya layer tersebut
+    if (hoveredLayerType && dataLayers.includes(hoveredLayerType)) {
+      const layerGroup = layerGroupsRef.current[hoveredLayerType];
+      if (layerGroup) {
+        layerGroup.eachLayer((layer: any) => {
+          if (layer.setStyle && layer.feature) {
+            const zoom = mapInstanceRef.current.getZoom();
+            
+            // Get original color from layer
+            let originalColor = '#3b82f6'; // default color
+            
+            if (hoveredLayerType === 'tutupan_lahan') {
+              const pl2024_id = String(layer.feature.properties.pl2024_id);
+              originalColor = colorMappingRef.current.tutupanLahan.get(pl2024_id) || '#3b82f6';
+            } else if (hoveredLayerType === 'geologi') {
+              const key = `${layer.feature.properties.namobj || ''}|${layer.feature.properties.umurobj || ''}`;
+              originalColor = colorMappingRef.current.geologi.get(key) || '#B45309';
+            } else if (hoveredLayerType === 'jenis_tanah') {
+              originalColor = colorMappingRef.current.jenisTanah.get(layer.feature.properties.jntnh1) || '#8B4513';
+            } else if (hoveredLayerType === 'lahan_kritis') {
+              originalColor = colorMappingRef.current.lahanKritis.get(layer.feature.properties.kritis) || '#808080';
+            } else if (hoveredLayerType === 'rawan_erosi') {
+              originalColor = colorMappingRef.current.rawanErosi.get(layer.feature.properties.tingkat) || '#808080';
+            } else if (hoveredLayerType === 'rawan_longsor') {
+              originalColor = colorMappingRef.current.rawanLongsor.get(layer.feature.properties.unsur) || '#808080';
+            } else if (hoveredLayerType === 'rawan_limpasan') {
+              originalColor = colorMappingRef.current.rawanLimpasan.get(layer.feature.properties.limpasan) || '#808080';
+            } else if (hoveredLayerType === 'rawan_karhutla') {
+              originalColor = colorMappingRef.current.rawanKarhutla.get(layer.feature.properties.kelas) || '#808080';
+            }
+            
+            // Apply normal style with original color
+            layer.setStyle({
+              color: originalColor,
+              weight: zoom > 10 ? 2 : 1,
+              opacity: 0.8,
+              fillColor: originalColor,
+              fillOpacity: zoom > 10 ? 0.4 : 0.3
+            });
+          }
+        });
+      }
+    }
+
+    // Jika ada yang di-hover saat ini, highlight layer tersebut
+    if (hoveredLayerKey && hoveredLayerType && hoveredLayerColor && dataLayers.includes(hoveredLayerType)) {
+      const layerGroup = layerGroupsRef.current[hoveredLayerType];
+      if (layerGroup) {
+        layerGroup.eachLayer((layer: any) => {
+          if (layer.feature && layer.setStyle) {
+            let shouldHighlight = false;
+
+            // Tentukan apakah layer ini yang harus di-highlight
+            if (hoveredLayerType === 'tutupan_lahan') {
+              shouldHighlight = String(layer.feature.properties.pl2024_id) === hoveredLayerKey;
+            } else if (hoveredLayerType === 'geologi') {
+              const key = `${layer.feature.properties.namobj || ''}|${layer.feature.properties.umurobj || ''}`;
+              shouldHighlight = key === hoveredLayerKey;
+            } else if (hoveredLayerType === 'jenis_tanah') {
+              shouldHighlight = layer.feature.properties.jntnh1 === hoveredLayerKey;
+            } else if (hoveredLayerType === 'lahan_kritis') {
+              shouldHighlight = layer.feature.properties.kritis === hoveredLayerKey;
+            } else if (hoveredLayerType === 'rawan_erosi') {
+              shouldHighlight = layer.feature.properties.tingkat === hoveredLayerKey;
+            } else if (hoveredLayerType === 'rawan_longsor') {
+              shouldHighlight = layer.feature.properties.unsur === hoveredLayerKey;
+            } else if (hoveredLayerType === 'rawan_limpasan') {
+              shouldHighlight = layer.feature.properties.limpasan === hoveredLayerKey;
+            } else if (hoveredLayerType === 'rawan_karhutla') {
+              shouldHighlight = layer.feature.properties.kelas === hoveredLayerKey;
+            }
+
+            if (shouldHighlight) {
+              // Highlight style dengan warna asli layer
+              layer.setStyle({
+                color: hoveredLayerColor, // Gunakan warna asli
+                weight: 5, // Border lebih tebal
+                opacity: 1,
+                fillColor: hoveredLayerColor,
+                fillOpacity: 0.8 // Opacity lebih tinggi untuk highlight
+              });
+              
+              // Bringkan layer ke depan
+              if (layer.bringToFront) {
+                layer.bringToFront();
+              }
+            }
+          }
+        });
+      }
+    }
+  }, [hoveredLayerKey, hoveredLayerType, hoveredLayerColor]);
+
 // Handle logout
 const handleLogout = () => {
   localStorage.removeItem('adminToken');
@@ -1132,9 +1320,9 @@ const fetchTutupanLahanData = async (): Promise<Array<{pl2024_id: number; deskri
     
     if (result.success) {
       // Assign colors to each unique deskripsi_domain
-      const dataWithColors = result.data.map((item: any, index: number) => ({
+      const dataWithColors = result.data.map((item: any) => ({
         ...item,
-        color: tutupanLahanColors[index % tutupanLahanColors.length]
+        color: tutupanLahanColors[item.deskripsi_domain] || '#999999'
       }));
       
       setTutupanLahanData(dataWithColors);
@@ -1268,7 +1456,31 @@ const fetchKejadianListings = async () => {
       console.log(`Received ${data.features?.length || 0} features for ${metadata.category} ${metadata.year}`);
       
       if (data.features && data.features.length > 0) {
-        allListings.push(...data.features.map((f: any) => f.properties));
+        const mappedData = data.features.map((f: any) => {
+          const props = f.properties;
+          const coords = f.geometry.coordinates;
+          
+          console.log('Feature properties for listing:', props);
+          console.log('Geometry coordinates:', coords);
+          
+          // Format data sama seperti di marker
+          return {
+            id: props.id,
+            title: props.title,
+            location: props.location,
+            category: props.category,
+            date: props.date,
+            das: props.das,
+            description: props.description,
+            thumbnail_path: props.thumbnail_path,
+            images_paths: props.images_paths,
+            latitude: coords[1],
+            longitude: coords[0],
+            featured: props.featured || false,
+            curah_hujan: props.curah_hujan
+          };
+        });
+        allListings.push(...mappedData);
       }
     }
     
@@ -1467,36 +1679,48 @@ const loadKejadianLayer = async (layerName: string, year: number, category?: str
     
     // Function untuk create custom icon berdasarkan category
     const createKejadianIcon = (category: string) => {
-      let iconSVG = '';
+      let iconContent = '';
       let bgColor = '#3b82f6'; // default blue
+      let hoverColor = '#ef4444'; // default hover red
+      let type = 'banjir'; // default type
       
       if (category === 'Banjir') {
         bgColor = '#3b82f6'; // blue
-        iconSVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
+        hoverColor = '#ef4444'; // hover red (dari kebakaran)
+        type = 'banjir';
+        iconContent = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
           <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>
         </svg>`;
       } else if (category === 'Tanah Longsor dan Erosi') {
         bgColor = '#f59e0b'; // orange
-        iconSVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
-          <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
-        </svg>`;
+        hoverColor = '#3b82f6'; // hover blue (dari banjir)
+        type = 'longsor';
+        iconContent = `<img src="/images/landslide-svgrepo-com.svg" style="width: 16px; height: 16px; filter: brightness(0) invert(1);" />`;
       } else if (category === 'Kebakaran Hutan dan Kekeringan') {
         bgColor = '#ef4444'; // red
-        iconSVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
-          <path d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z"/>
-        </svg>`;
+        hoverColor = '#f59e0b'; // hover orange (dari longsor)
+        type = 'kebakaran';
+        iconContent = `<img src="/images/fire-svgrepo-com.svg" style="width: 16px; height: 16px; filter: brightness(0) invert(1);" />`;
       }
       
       return window.L.divIcon({
         className: 'custom-kejadian-marker',
         html: `
-          <div class="marker-container" style="position: relative; width: 44px; height: 44px; cursor: pointer;">
+          <style>
+            .marker-container-kejadian-${type} .marker-bg {
+              fill: ${bgColor};
+              transition: fill 0.3s ease;
+            }
+            .marker-container-kejadian-${type}:hover .marker-bg {
+              fill: ${hoverColor} !important;
+            }
+          </style>
+          <div class="marker-container marker-container-kejadian-${type}" style="position: relative; width: 44px; height: 44px; cursor: pointer;">
             <svg class="marker-circle" width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
-              <circle class="marker-bg" cx="22" cy="22" r="20" fill="${bgColor}" stroke="white" stroke-width="3" 
-                style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3)); transition: fill 0.2s ease;"/>
+              <circle class="marker-bg" cx="22" cy="22" r="20" stroke="white" stroke-width="3" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));"/>
             </svg>
-            <div style="position: absolute; top: 12px; left: 12px; pointer-events: none;">
-              ${iconSVG}
+            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; display: flex; align-items: center; justify-content: center;">
+              ${iconContent}
             </div>
           </div>
         `,
@@ -1517,17 +1741,25 @@ const loadKejadianLayer = async (layerName: string, year: number, category?: str
         icon: createKejadianIcon(props.category)
       });
       
-      // Store incident data
+      // Store incident data - LENGKAP dengan semua field (match kejadian.tsx format)
       (marker as any).incidentData = {
         id: props.id,
         title: props.title,
         image: props.thumbnail_path ? `${API_URL}${props.thumbnail_path}` : 'https://images.unsplash.com/photo-1611273426858-450d8e3c9fce?w=400',
         location: props.location,
         category: props.category,
+        type: props.category.toLowerCase().includes('banjir') ? 'banjir' : 
+              props.category.toLowerCase().includes('longsor') ? 'longsor' : 'kebakaran',
         date: props.date,
         das: props.das,
         description: props.description,
-        images_paths: props.images_paths
+        thumbnail_path: props.thumbnail_path,
+        images_paths: props.images_paths,
+        coordinates: [coordinates[1], coordinates[0]],
+        latitude: coordinates[1],
+        longitude: coordinates[0],
+        featured: props.featured || false,
+        curah_hujan: props.curah_hujan
       };
       
       // Add click event
@@ -2108,28 +2340,51 @@ const checkLayerAvailability = async (bounds: [[number, number], [number, number
       kerawanan: [] as Array<{id: string, name: string}>,
       mitigasiAdaptasi: [] as Array<{id: string, name: string}>,
       lainnya: [] as Array<{id: string, name: string}>,
-      kejadian: [] as Array<{id: string, name: string, category: string, year: number, count: number}>
+      kejadian: [] as Array<{
+        id: string, 
+        name: string, 
+        category?: string, 
+        year?: number, 
+        count?: number, 
+        isAutoGenerated?: boolean,
+        isManual?: boolean,
+        isShapefile?: boolean
+      }>
     };
     
-    // Add regular layers
+    // Add regular layers (including shapefile kejadian)
     layersData.availableLayers.forEach((layer: any) => {
       if (grouped[layer.section as keyof typeof grouped]) {
-        grouped[layer.section as keyof typeof grouped].push({
+        const layerInfo: any = {
           id: layer.id,
           name: layer.name
-        });
+        };
+        
+        // ✅ PERBAIKAN: Tambahkan flags untuk shapefile kejadian
+        if (layer.section === 'kejadian') {
+          layerInfo.isManual = true;
+          layerInfo.isShapefile = true;
+        }
+        
+        grouped[layer.section as keyof typeof grouped].push(layerInfo);
       }
     });
     
-    // Add kejadian layers for available category + year combinations
+    // ✅ APPEND kejadian auto-generated, jangan overwrite
     if (kejadianData.availableKejadian && kejadianData.availableKejadian.length > 0) {
-      grouped.kejadian = kejadianData.availableKejadian.map((item: any) => ({
+      const autoKejadian = kejadianData.availableKejadian.map((item: any) => ({
         id: `kejadian_${item.category.replace(/\s+/g, '_')}_${item.year}`,
         name: `${item.category} ${item.year}`,
         category: item.category,
         year: item.year,
-        count: item.count
+        count: item.count,
+        isAutoGenerated: true,
+        isManual: false,
+        isShapefile: false
       }));
+      
+      // Gabungkan shapefile kejadian + auto-generated kejadian
+      grouped.kejadian = [...grouped.kejadian, ...autoKejadian];
     }
     
     console.log('Grouped available layers:', grouped);
@@ -2146,6 +2401,7 @@ const checkLayerAvailability = async (bounds: [[number, number], [number, number
   }
 };
 
+
   // const reloadActiveLayers = () => {
   //   if (isLoadingLayer) return; // Hindari multiple reload
     
@@ -2153,6 +2409,8 @@ const checkLayerAvailability = async (bounds: [[number, number], [number, number
   //     loadLayerInBounds(tableName);
   //   });
   // };
+
+  
 
   useEffect(() => {
   const updateKejadianCount = async () => {
@@ -2621,39 +2879,39 @@ const fetchLayers = async () => {
   //   reloadLayers();
   // }, [activeLayers, mapReady]);
 
-  useEffect(() => {
-  if (!mapInstanceRef.current) return;
+//   useEffect(() => {
+//   if (!mapInstanceRef.current) return;
 
-  const handleZoomEnd = async () => {
-    const currentZoom = mapInstanceRef.current.getZoom();
-    console.log('Zoom changed to:', currentZoom, '- Reloading layers for new simplification level');
+//   const handleZoomEnd = async () => {
+//     const currentZoom = mapInstanceRef.current.getZoom();
+//     console.log('Zoom changed to:', currentZoom, '- Reloading layers for new simplification level');
     
-    const layersToReload = Array.from(activeLayers);
-    console.log('Reloading active layers:', layersToReload);
+//     const layersToReload = Array.from(activeLayers);
+//     console.log('Reloading active layers:', layersToReload);
     
-    for (const layerName of layersToReload) {
-      if (layerName.startsWith('kejadian_')) {
-        // Ambil metadata yang tersimpan
-        const metadata = activeKejadianLayers.get(layerName);
-        if (metadata) {
-          await loadKejadianLayer(layerName, metadata.year, metadata.category);
-        } else {
-          console.warn('No metadata found for kejadian layer:', layerName);
-        }
-      } else {
-        await loadLayerInBounds(layerName);
-      }
-    }
-  };
+//     for (const layerName of layersToReload) {
+//       if (layerName.startsWith('kejadian_')) {
+//         // Ambil metadata yang tersimpan
+//         const metadata = activeKejadianLayers.get(layerName);
+//         if (metadata) {
+//           await loadKejadianLayer(layerName, metadata.year, metadata.category);
+//         } else {
+//           console.warn('No metadata found for kejadian layer:', layerName);
+//         }
+//       } else {
+//         await loadLayerInBounds(layerName);
+//       }
+//     }
+//   };
 
-  mapInstanceRef.current.on('zoomend', handleZoomEnd);
+//   mapInstanceRef.current.on('zoomend', handleZoomEnd);
 
-  return () => {
-    if (mapInstanceRef.current) {
-      mapInstanceRef.current.off('zoomend', handleZoomEnd);
-    }
-  };
-}, [activeLayers, activeKejadianLayers, currentBounds, selectedDas]);
+//   return () => {
+//     if (mapInstanceRef.current) {
+//       mapInstanceRef.current.off('zoomend', handleZoomEnd);
+//     }
+//   };
+// }, [activeLayers, activeKejadianLayers, currentBounds, selectedDas]);
 
 useEffect(() => {
   if (!mapInstanceRef.current) return;
@@ -2766,6 +3024,46 @@ useEffect(() => {
   const [activeTab, setActiveTab] = useState('administrasi');
   const [activeBottomTab, setActiveBottomTab] = useState('curahHujan');
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(null);
+
+  const layersWithBottomTabs = ['tutupan_lahan', 'jenis_tanah', 'geologi', 'lahan_kritis', 'rawan_erosi', 'rawan_longsor', 'rawan_limpasan', 'rawan_karhutla'];
+
+  useEffect(() => {
+    if (!mapInstanceRef.current) return;
+    
+    // Mapping dari tab id ke tableName
+    const tabToLayerMapping: Record<string, string> = {
+      'tutupanLahan': 'tutupan_lahan',
+      'jenisTanah': 'jenis_tanah',
+      'geologi': 'geologi',
+      'lahan_kritis': 'lahan_kritis',
+      'rawan_erosi': 'rawan_erosi',
+      'rawan_longsor': 'rawan_longsor',
+      'rawan_limpasan': 'rawan_limpasan',
+      'rawan_karhutla': 'rawan_karhutla'
+    };
+    
+    // Sembunyikan semua layer yang punya bottom tab
+    layersWithBottomTabs.forEach(layerName => {
+      const layer = layerGroupsRef.current[layerName];
+      if (layer && mapInstanceRef.current.hasLayer(layer)) {
+        mapInstanceRef.current.removeLayer(layer);
+      }
+    });
+    
+    // Tampilkan hanya layer yang sesuai dengan activeBottomTab
+    const activeLayerName = tabToLayerMapping[activeBottomTab];
+    if (activeLayerName) {
+      const activeLayer = layerGroupsRef.current[activeLayerName];
+      if (activeLayer && activeLayers.has(activeLayerName)) {
+        if (!mapInstanceRef.current.hasLayer(activeLayer)) {
+          activeLayer.addTo(mapInstanceRef.current);
+          console.log(`👁️ Menampilkan layer: ${activeLayerName}`);
+        }
+      }
+    }
+    
+  }, [activeBottomTab, activeLayers]);
+
   const [filters, setFilters] = useState({
     kerawanan: {
       banjir: false,
@@ -3276,10 +3574,30 @@ useEffect(() => {
                   key={idx} 
                   className="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow cursor-pointer"
                   onClick={() => {
-                    // Zoom to location on map
-                    if (mapInstanceRef.current && kejadian.latitude && kejadian.longitude) {
-                      mapInstanceRef.current.setView([kejadian.latitude, kejadian.longitude], 15);
-                    }
+                    // Navigate ke detail kejadian bencana
+                    navigate('/detailkejadian', {
+                      state: {
+                        incident: {
+                          id: kejadian.id,
+                          title: kejadian.title,
+                          image: kejadian.thumbnail_path ? `${API_URL}${kejadian.thumbnail_path}` : 'https://images.unsplash.com/photo-1611273426858-450d8e3c9fce?w=400',
+                          location: kejadian.location,
+                          category: kejadian.category,
+                          type: kejadian.category.toLowerCase().includes('banjir') ? 'banjir' : 
+                                kejadian.category.toLowerCase().includes('longsor') ? 'longsor' : 'kebakaran',
+                          date: kejadian.date,
+                          das: kejadian.das,
+                          description: kejadian.description,
+                          thumbnail_path: kejadian.thumbnail_path,
+                          images_paths: kejadian.images_paths,
+                          coordinates: [kejadian.latitude, kejadian.longitude],
+                          latitude: kejadian.latitude,
+                          longitude: kejadian.longitude,
+                          featured: kejadian.featured || false,
+                          curah_hujan: kejadian.curah_hujan
+                        }
+                      }
+                    });
                   }}
                 >
                   <div className="flex gap-3">
@@ -3323,18 +3641,15 @@ useEffect(() => {
                             <span className="text-blue-600">{kejadian.das}</span>
                           </div>
                         )}
+                        {(kejadian.curah_hujan !== undefined && kejadian.curah_hujan !== null) && (
+                          <div className="flex items-center gap-1">
+                            <span className="font-medium">🌧️</span>
+                            <span className="text-blue-600">{kejadian.curah_hujan} mm</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
-                  
-                  {/* Description preview */}
-                  {/* {kejadian.description && (
-                    <div className="mt-2 pt-2 border-t border-gray-100">
-                      <p className="text-xs text-gray-500 line-clamp-2">
-                        {kejadian.description}
-                      </p>
-                    </div>
-                  )} */}
                 </div>
               ))}
             </div>
@@ -3350,25 +3665,36 @@ useEffect(() => {
         );
       }
 
-   case 'tutupanLahan':
+  case 'tutupanLahan':
   if (activeLayers.has('tutupan_lahan') && tutupanLahanData.length > 0) {
     return (
-      <div className="p-3">
-        
-        {/* TAMBAH max-height dan overflow-y-auto */}
-        <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '400px' }}>
+      <div className="p-3 h-full flex flex-col">
+        <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-white z-10">
               <tr className="border-b border-gray-200">
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">No</th>
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Warna Layer</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '100px' }}>Warna Layer</th>
                 <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Deskripsi Tutupan Lahan</th>
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Luas (Ha)</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '120px' }}>Luas (Ha)</th>
               </tr>
             </thead>
             <tbody>
               {tutupanLahanData.map((item, idx) => (
-                <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                <tr 
+                  key={idx} 
+                  className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                  onMouseEnter={() => {
+                    setHoveredLayerKey(String(item.pl2024_id));
+                    setHoveredLayerType('tutupan_lahan');
+                    setHoveredLayerColor(item.color || '#999999');
+                  }}
+                  onMouseLeave={() => {
+                    setHoveredLayerKey(null);
+                    setHoveredLayerType(null);
+                    setHoveredLayerColor(null);
+                  }}
+                >
                   <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
                   <td className="py-2 px-2">
                     <div 
@@ -3376,15 +3702,14 @@ useEffect(() => {
                       style={{ backgroundColor: item.color }}
                     ></div>
                   </td>
-                  <td className="py-2 px-2 text-gray-700">{item.deskripsi_domain || '-'}</td>
+                  <td className="py-2 px-2 text-gray-700 break-words">{item.deskripsi_domain || '-'}</td>
                   <td className="py-2 px-2 text-gray-700">
                     {item.luas_total ? parseFloat(item.luas_total.toString()).toFixed(2) : '0'}
                   </td>
                 </tr>
               ))}
-              {/* Tambahkan row kosong untuk padding bawah */}
               <tr>
-                <td colSpan={4} className="py-4"></td>
+                <td colSpan={4} style={{ height: '80px' }}></td>
               </tr>
             </tbody>
           </table>
@@ -3405,19 +3730,32 @@ useEffect(() => {
     case 'jenisTanah':
       if (activeLayers.has('jenis_tanah') && jenisTanahData.length > 0) {
         return (
-          <div className="p-3">
-            <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '400px' }}>
+          <div className="p-3 h-full flex flex-col">
+            <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
               <table className="w-full text-xs">
                 <thead className="sticky top-0 bg-white z-10">
                   <tr className="border-b border-gray-200">
-                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">No</th>
-                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Warna Layer</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '100px' }}>Warna Layer</th>
                     <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Jenis Tanah</th>
                   </tr>
                 </thead>
                 <tbody>
                   {jenisTanahData.map((item, idx) => (
-                    <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                    <tr 
+                      key={idx} 
+                      className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                      onMouseEnter={() => {
+                        setHoveredLayerKey(item.jntnh1);
+                        setHoveredLayerType('jenis_tanah');
+                        setHoveredLayerColor(item.color || '#8B4513');
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredLayerKey(null);
+                        setHoveredLayerType(null);
+                        setHoveredLayerColor(null);
+                      }}
+                    >
                       <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
                       <td className="py-2 px-2">
                         <div 
@@ -3425,12 +3763,11 @@ useEffect(() => {
                           style={{ backgroundColor: item.color }}
                         ></div>
                       </td>
-                      <td className="py-2 px-2 text-gray-700">{item.jntnh1 || '-'}</td>
+                      <td className="py-2 px-2 text-gray-700 break-words">{item.jntnh1 || '-'}</td>
                     </tr>
                   ))}
-                  {/* Padding bawah */}
                   <tr>
-                    <td colSpan={3} className="py-4"></td>
+                    <td colSpan={3} style={{ height: '80px' }}></td>
                   </tr>
                 </tbody>
               </table>
@@ -3449,48 +3786,58 @@ useEffect(() => {
       break;
 
     case 'geologi':
-  if (activeLayers.has('geologi') && geologiData.length > 0) {
-    return (
-      <div className="p-3">
-        
-        {/* TAMBAH max-height dan overflow-y-auto */}
-        <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '400px' }}>
-          <table className="w-full text-xs">
-            <thead className="sticky top-0 bg-white z-10">
-              <tr className="border-b border-gray-200">
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">No</th>
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Warna Layer</th>
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Jenis Batuan</th>
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Umur Batuan</th>
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Keliling (m)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {geologiData.map((item, idx) => (
-                <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
-                  <td className="py-2 px-2">
-                    <div 
-                      className="w-8 h-4 rounded border border-gray-300"
-                      style={{ backgroundColor: item.color }}
-                    ></div>
-                  </td>
-                  <td className="py-2 px-2 text-gray-700">{item.namobj || '-'}</td>
-                  <td className="py-2 px-2 text-gray-700">{item.umurobj || '-'}</td>
-                  <td className="py-2 px-2 text-gray-700">
-                    {item.keliling_total ? parseFloat(item.keliling_total.toString()).toFixed(2) : '0'}
-                  </td>
-                </tr>
-              ))}
-              {/* Tambahkan row kosong untuk padding bawah */}
-              <tr>
-                <td colSpan={5} className="py-4"></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
+      if (activeLayers.has('geologi') && geologiData.length > 0) {
+        return (
+          <div className="p-3 h-full flex flex-col">
+            <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white z-10">
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '100px' }}>Warna Layer</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Jenis Batuan</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Umur Batuan</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '120px' }}>Keliling (m)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {geologiData.map((item, idx) => (
+                    <tr 
+                      key={idx} 
+                      className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                      onMouseEnter={() => {
+                        setHoveredLayerKey(`${item.namobj}|${item.umurobj}`);
+                        setHoveredLayerType('geologi');
+                        setHoveredLayerColor(item.color || '#B45309');
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredLayerKey(null);
+                        setHoveredLayerType(null);
+                        setHoveredLayerColor(null);
+                      }}
+                    >
+                      <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
+                      <td className="py-2 px-2">
+                        <div 
+                          className="w-8 h-4 rounded border border-gray-300"
+                          style={{ backgroundColor: item.color }}
+                        ></div>
+                      </td>
+                      <td className="py-2 px-2 text-gray-700 break-words">{item.namobj || '-'}</td>
+                      <td className="py-2 px-2 text-gray-700 break-words">{item.umurobj || '-'}</td>
+                      <td className="py-2 px-2 text-gray-700">
+                        {item.keliling_total ? parseFloat(item.keliling_total.toString()).toFixed(2) : '0'}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr>
+                    <td colSpan={5} style={{ height: '80px' }}></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
   } else if (activeLayers.has('geologi')) {
     return (
       <div className="p-3 flex items-center justify-center h-full">
@@ -3505,20 +3852,33 @@ useEffect(() => {
   case 'lahan_kritis':
   if (activeLayers.has('lahan_kritis') && lahanKritisData.length > 0) {
     return (
-      <div className="p-3">
-        <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '400px' }}>
+      <div className="p-3 h-full flex flex-col">
+        <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-white z-10">
               <tr className="border-b border-gray-200">
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">No</th>
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Warna Layer</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '100px' }}>Warna Layer</th>
                 <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Tingkat Kritis</th>
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Luas (Ha)</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '120px' }}>Luas (Ha)</th>
               </tr>
             </thead>
             <tbody>
               {lahanKritisData.map((item, idx) => (
-                <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                <tr 
+                  key={idx} 
+                  className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                  onMouseEnter={() => {
+                    setHoveredLayerKey(item.kritis);
+                    setHoveredLayerType('lahan_kritis');
+                    setHoveredLayerColor(item.color || '#808080');
+                  }}
+                  onMouseLeave={() => {
+                    setHoveredLayerKey(null);
+                    setHoveredLayerType(null);
+                    setHoveredLayerColor(null);
+                  }}
+                >
                   <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
                   <td className="py-2 px-2">
                     <div 
@@ -3526,12 +3886,14 @@ useEffect(() => {
                       style={{ backgroundColor: item.color }}
                     ></div>
                   </td>
-                  <td className="py-2 px-2 text-gray-700">{item.kritis}</td>
-                  <td className="py-2 px-2 text-gray-700">{item.luas_ha.toFixed(2)}</td>
+                  <td className="py-2 px-2 text-gray-700 break-words">{item.kritis || '-'}</td>
+                  <td className="py-2 px-2 text-gray-700">
+                    {item.luas_ha ? item.luas_ha.toFixed(2) : '0'}
+                  </td>
                 </tr>
               ))}
               <tr>
-                <td colSpan={4} className="py-4"></td>
+                <td colSpan={4} style={{ height: '80px' }}></td>
               </tr>
             </tbody>
           </table>
@@ -3552,20 +3914,33 @@ useEffect(() => {
 case 'rawan_erosi':
   if (activeLayers.has('rawan_erosi') && rawanErosiData.length > 0) {
     return (
-      <div className="p-3">
-        <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '400px' }}>
+      <div className="p-3 h-full flex flex-col">
+        <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-white z-10">
               <tr className="border-b border-gray-200">
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">No</th>
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Warna Layer</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '100px' }}>Warna Layer</th>
                 <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Tingkat Kerawanan</th>
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Luas (Ha)</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '120px' }}>Luas (Ha)</th>
               </tr>
             </thead>
             <tbody>
               {rawanErosiData.map((item, idx) => (
-                <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                <tr 
+                  key={idx} 
+                  className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                  onMouseEnter={() => {
+                    setHoveredLayerKey(item.tingkat);
+                    setHoveredLayerType('rawan_erosi');
+                    setHoveredLayerColor(item.color || '#808080');
+                  }}
+                  onMouseLeave={() => {
+                    setHoveredLayerKey(null);
+                    setHoveredLayerType(null);
+                    setHoveredLayerColor(null);
+                  }}
+                >
                   <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
                   <td className="py-2 px-2">
                     <div 
@@ -3573,12 +3948,14 @@ case 'rawan_erosi':
                       style={{ backgroundColor: item.color }}
                     ></div>
                   </td>
-                  <td className="py-2 px-2 text-gray-700">{item.tingkat}</td>
-                  <td className="py-2 px-2 text-gray-700">{item.luas_ha.toFixed(2)}</td>
+                  <td className="py-2 px-2 text-gray-700 break-words">{item.tingkat || '-'}</td>
+                  <td className="py-2 px-2 text-gray-700">
+                    {item.luas_ha ? item.luas_ha.toFixed(2) : '0'}
+                  </td>
                 </tr>
               ))}
               <tr>
-                <td colSpan={4} className="py-4"></td>
+                <td colSpan={4} style={{ height: '80px' }}></td>
               </tr>
             </tbody>
           </table>
@@ -3599,20 +3976,33 @@ case 'rawan_erosi':
 case 'rawan_longsor':
   if (activeLayers.has('rawan_longsor') && rawanLongsorData.length > 0) {
     return (
-      <div className="p-3">
-        <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '400px' }}>
+      <div className="p-3 h-full flex flex-col">
+        <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-white z-10">
               <tr className="border-b border-gray-200">
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">No</th>
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Warna Layer</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '100px' }}>Warna Layer</th>
                 <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Tingkat Kerawanan</th>
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Luas Wilayah</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '120px' }}>Luas Wilayah</th>
               </tr>
             </thead>
             <tbody>
               {rawanLongsorData.map((item, idx) => (
-                <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                <tr 
+                  key={idx} 
+                  className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                  onMouseEnter={() => {
+                    setHoveredLayerKey(item.tingkat);
+                    setHoveredLayerType('rawan_longsor');
+                    setHoveredLayerColor(item.color || '#808080');
+                  }}
+                  onMouseLeave={() => {
+                    setHoveredLayerKey(null);
+                    setHoveredLayerType(null);
+                    setHoveredLayerColor(null);
+                  }}
+                >
                   <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
                   <td className="py-2 px-2">
                     <div 
@@ -3620,12 +4010,14 @@ case 'rawan_longsor':
                       style={{ backgroundColor: item.color }}
                     ></div>
                   </td>
-                  <td className="py-2 px-2 text-gray-700">{item.tingkat}</td>
-                  <td className="py-2 px-2 text-gray-700">{item.luas_ha.toFixed(6)}</td>
+                  <td className="py-2 px-2 text-gray-700 break-words">{item.tingkat || '-'}</td>
+                  <td className="py-2 px-2 text-gray-700">
+                    {item.luas_ha ? item.luas_ha.toFixed(6) : '0'}
+                  </td>
                 </tr>
               ))}
               <tr>
-                <td colSpan={4} className="py-4"></td>
+                <td colSpan={4} style={{ height: '80px' }}></td>
               </tr>
             </tbody>
           </table>
@@ -3646,20 +4038,33 @@ case 'rawan_longsor':
 case 'rawan_limpasan':
   if (activeLayers.has('rawan_limpasan') && rawanLimpasanData.length > 0) {
     return (
-      <div className="p-3">
-        <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '400px' }}>
+      <div className="p-3 h-full flex flex-col">
+        <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-white z-10">
               <tr className="border-b border-gray-200">
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">No</th>
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Warna Layer</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '100px' }}>Warna Layer</th>
                 <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Tingkat Limpasan</th>
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Luas (Ha)</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '120px' }}>Luas (Ha)</th>
               </tr>
             </thead>
             <tbody>
               {rawanLimpasanData.map((item, idx) => (
-                <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                <tr 
+                  key={idx} 
+                  className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                  onMouseEnter={() => {
+                    setHoveredLayerKey(item.tingkat);
+                    setHoveredLayerType('rawan_limpasan');
+                    setHoveredLayerColor(item.color || '#808080');
+                  }}
+                  onMouseLeave={() => {
+                    setHoveredLayerKey(null);
+                    setHoveredLayerType(null);
+                    setHoveredLayerColor(null);
+                  }}
+                >
                   <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
                   <td className="py-2 px-2">
                     <div 
@@ -3667,12 +4072,14 @@ case 'rawan_limpasan':
                       style={{ backgroundColor: item.color }}
                     ></div>
                   </td>
-                  <td className="py-2 px-2 text-gray-700">{item.tingkat}</td>
-                  <td className="py-2 px-2 text-gray-700">{item.luas_ha.toFixed(2)}</td>
+                  <td className="py-2 px-2 text-gray-700 break-words">{item.tingkat || '-'}</td>
+                  <td className="py-2 px-2 text-gray-700">
+                    {item.luas_ha ? item.luas_ha.toFixed(2) : '0'}
+                  </td>
                 </tr>
               ))}
               <tr>
-                <td colSpan={4} className="py-4"></td>
+                <td colSpan={4} style={{ height: '80px' }}></td>
               </tr>
             </tbody>
           </table>
@@ -3693,20 +4100,33 @@ case 'rawan_limpasan':
 case 'rawan_karhutla':
   if (activeLayers.has('rawan_karhutla') && rawanKarhutlaData.length > 0) {
     return (
-      <div className="p-3">
-        <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '400px' }}>
+      <div className="p-3 h-full flex flex-col">
+        <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-white z-10">
               <tr className="border-b border-gray-200">
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">No</th>
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Warna Layer</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '100px' }}>Warna Layer</th>
                 <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Tingkat Kerawanan</th>
-                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Luas (Ha)</th>
+                <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '120px' }}>Luas (Ha)</th>
               </tr>
             </thead>
             <tbody>
               {rawanKarhutlaData.map((item, idx) => (
-                <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                <tr 
+                  key={idx} 
+                  className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                  onMouseEnter={() => {
+                    setHoveredLayerKey(item.tingkat);
+                    setHoveredLayerType('rawan_karhutla');
+                    setHoveredLayerColor(item.color || '#808080');
+                  }}
+                  onMouseLeave={() => {
+                    setHoveredLayerKey(null);
+                    setHoveredLayerType(null);
+                    setHoveredLayerColor(null);
+                  }}
+                >
                   <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
                   <td className="py-2 px-2">
                     <div 
@@ -3714,12 +4134,14 @@ case 'rawan_karhutla':
                       style={{ backgroundColor: item.color }}
                     ></div>
                   </td>
-                  <td className="py-2 px-2 text-gray-700">{item.tingkat}</td>
-                  <td className="py-2 px-2 text-gray-700">{item.luas_ha.toFixed(2)}</td>
+                  <td className="py-2 px-2 text-gray-700 break-words">{item.tingkat || '-'}</td>
+                  <td className="py-2 px-2 text-gray-700">
+                    {item.luas_ha ? item.luas_ha.toFixed(2) : '0'}
+                  </td>
                 </tr>
               ))}
               <tr>
-                <td colSpan={4} className="py-4"></td>
+                <td colSpan={4} style={{ height: '80px' }}></td>
               </tr>
             </tbody>
           </table>
@@ -3842,9 +4264,18 @@ case 'rawan_karhutla':
                           navigate('/kebencanaan');
                           setShowMenuDropdown(false);
                         }}
-                        className="px-3 py-2 hover:bg-orange-50 cursor-pointer text-gray-700 text-sm font-medium"
+                       className="px-3 py-2 hover:bg-orange-50 cursor-pointer text-gray-700 text-sm font-medium border-b border-gray-200"
                       >
                         Kejadian
+                      </div>
+                      <div
+                        onClick={() => {
+                          navigate('/tentang-kami');
+                          setShowMenuDropdown(false);
+                        }}
+                        className="px-3 py-2 hover:bg-orange-50 cursor-pointer text-gray-700 text-sm font-medium"
+                      >
+                        Tentang Kami
                       </div>
                     </div>
                   </>
@@ -3860,7 +4291,7 @@ case 'rawan_karhutla':
 
           {/* Layer Services Panel - Smaller width */}
           {isLayerPanelOpen && (
-            <div className="w-80 bg-white shadow-2xl flex flex-col" style={{ height: '65vh' }}>
+            <div className="w-80 bg-white shadow-2xl flex flex-col z-[2000]" style={{ height: '100vh' }}>
               {/* Header - Smaller */}
               <div className="bg-orange-500 text-white p-3 flex items-center justify-between flex-shrink-0">
                 <div className="flex items-center gap-2">
@@ -4350,11 +4781,25 @@ case 'rawan_karhutla':
         </div>
 
         {/* Bottom Section: Charts and Photos - 35% height */}
-        <div className="flex border-t-2 border-gray-300" style={{ height: '35vh' }}>
+        <div 
+          className="flex border-t-2 border-gray-300 transition-all duration-300 overflow-hidden" 
+          style={{ 
+            height: '35vh'
+          }}
+        >
           {/* Charts Section */}
-          <div className="flex-1 bg-white flex flex-col overflow-hidden">
+          <div 
+            className="flex-1 bg-white flex flex-col overflow-hidden min-w-0 transition-all duration-300"
+            style={{ 
+              marginRight: isLayerPanelOpen ? '250px' : '0'
+            }}
+          >
             {/* Bottom Tabs - Smaller */}
-            <div className="bg-gray-100 border-b border-gray-300 px-3 py-1.5 flex gap-1.5 overflow-x-auto flex-shrink-0">
+            <div className="bg-gray-100 border-b border-gray-300 px-3 py-1.5 overflow-x-auto flex-shrink-0" style={{ 
+              scrollbarWidth: 'thin',
+              scrollbarColor: '#9ca3af #e5e7eb'
+            }}>
+              <div className="flex gap-1.5 min-w-max">
               {bottomTabs.map(tab => {
             // Check if this tab's layer is currently loading
             const getLayerNameFromTabId = (tabId: string): string => {
@@ -4394,23 +4839,24 @@ case 'rawan_karhutla':
               </button>
             );
           })}
+          </div>
         </div>
 
             {/* Chart Content - Smaller padding */}
-            <div className="flex-1 overflow-hidden p-3">
+            <div className="flex-1 overflow-hidden p-1">
               {renderBottomContent()}
             </div>
           </div>
 
           {/* Photo Gallery Sidebar */}
-          <div className="w-80 bg-gray-50 border-l border-gray-300 flex flex-col" style={{ height: '35vh' }}>
+          {/* <div className="w-80 bg-gray-50 border-l border-gray-300 flex flex-col" style={{ height: '35vh' }}>
             <div className="p-3 flex-shrink-0">
               <h3 className="text-sm font-semibold text-gray-800">Dokumentasi Foto Kejadian</h3>
-              {/* {kejadianPhotos.length > 0 && (
+              {kejadianPhotos.length > 0 && (
                 <p className="text-xs text-gray-600 mt-1">
                   {kejadianPhotos.length} foto dari kejadian yang ditampilkan
                 </p>
-              )} */}
+              )}
             </div>
             <div className="flex-1 overflow-y-auto px-3 pb-3">
               {kejadianPhotos.length > 0 ? (
@@ -4464,7 +4910,7 @@ case 'rawan_karhutla':
                 </div>
               )}
             </div>
-          </div>
+          </div> */}
         </div>
       </div>
 
@@ -4756,6 +5202,25 @@ case 'rawan_karhutla':
           )}
         </div>
       )}
+
+      {/* Header Trademark */}
+      <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-[2200] pointer-events-none">
+        <div className="flex items-center gap-3 backdrop-blur-sm px-4 py-2 rounded-lg ">
+          <img 
+            src="/images/logo_kehutanan_png.png" 
+            alt="Logo Kehutanan" 
+            className="h-10 w-10 object-contain"
+          />
+          <div className="flex flex-col">
+            <span className="text-xs font-bold text-gray-800">
+              Sistem Informasi Bencana Hidrometeorologi Kehutanan
+            </span>
+            <span className="text-[10px] text-gray-600">
+              Pusat Pengembangan Mitigasi dan Adaptasi Bencana Hidrometeorologi Kehutanan 2025
+            </span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

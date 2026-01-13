@@ -12,6 +12,7 @@ import Kerawanan from './kerawanan.tsx';
 import Kebencanaan from './kejadian.tsx';
 import DetailKejadianBencana from './detailkejadianbencana.tsx';
 import AdminLogin from './adminlogin.tsx';
+import TentangKami from './tentangkami.tsx';
 
 createRoot(document.getElementById('root')!).render(
 
@@ -22,6 +23,7 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/kerawanan" element={<Kerawanan />} />
         <Route path="/kebencanaan" element={<Kebencanaan />} />
         <Route path="/detailkejadian" element={<DetailKejadianBencana />} />
+        <Route path="/tentang-kami" element={<TentangKami />} />
         <Route path="/administrator-sign-in" element={<AdminLogin />} />
 
       </Routes>
