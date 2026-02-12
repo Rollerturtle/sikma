@@ -9140,12 +9140,13 @@ app.get('/api/tutupan-lahan/by-das', async (req, res) => {
         COALESCE(mpl.deskripsi_domain, 'Tutupan Lahan ' || tl.pl2024_id::text) as deskripsi_domain,
         COUNT(*) as count,
         SUM(tl.luas_ha) as total_luas_ha
-      FROM tutupan_lahan tl
+      FROM penutupan_lahan_2024 tl
       LEFT JOIN mapping_penutupan_lahan mpl 
         ON tl.pl2024_id::text = mpl.kode_domain::text
-      WHERE ST_Intersects(
-        tl.geom,
-        (SELECT ST_Union(geom) FROM das_adm WHERE nama_das = $1)
+        WHERE tl.geom_valid IS NOT NULL
+      AND ST_Intersects(
+        tl.geom_valid,
+        (SELECT ST_Union(geom_valid) FROM das_adm WHERE nama_das = $1)
       )
       GROUP BY tl.pl2024_id, mpl.deskripsi_domain
       ORDER BY total_luas_ha DESC
@@ -9266,6 +9267,11 @@ app.get('/api/das/geometry-by-coordinates', async (req, res) => {
   }
 });
 
+// server.js
+
+// ================= Endpoint /api/kejadian/list ================
+// Ganti line 9242-9289 dengan:
+
 app.get('/api/kejadian/list', async (req, res) => {
   try {
     const { category, location, featured } = req.query;
@@ -9318,58 +9324,6 @@ app.get('/api/kejadian/list', async (req, res) => {
     });
   }
 });
-
-// app.post('/api/kejadian/check-years-availability', async (req, res) => {
-//   const client = await pool.connect();
-  
-//   try {
-//     const { bounds, dasFilter } = req.body;
-    
-//     if (!bounds || bounds.length !== 2) {
-//       return res.status(400).json({ error: 'Invalid bounds format' });
-//     }
-    
-//     const [[minLat, minLng], [maxLat, maxLng]] = bounds;
-//     const boundsWKT = `POLYGON((${minLng} ${minLat}, ${maxLng} ${minLat}, ${maxLng} ${maxLat}, ${minLng} ${maxLat}, ${minLng} ${minLat}))`;
-    
-//     let yearsQuery;
-//     let queryParams;
-    
-//     if (dasFilter && dasFilter.length > 0) {
-//       const dasPlaceholders = dasFilter.map((_, idx) => `$${idx + 2}`).join(', ');
-//       yearsQuery = `
-//         SELECT DISTINCT EXTRACT(YEAR FROM date)::integer as year
-//         FROM kejadian
-//         WHERE geom IS NOT NULL
-//         AND ST_Intersects(geom, ST_GeomFromText($1, 4326))
-//         AND das IN (${dasPlaceholders})
-//         ORDER BY year DESC
-//       `;
-//       queryParams = [boundsWKT, ...dasFilter];
-//     } else {
-//       yearsQuery = `
-//         SELECT DISTINCT EXTRACT(YEAR FROM date)::integer as year
-//         FROM kejadian
-//         WHERE geom IS NOT NULL
-//         AND ST_Intersects(geom, ST_GeomFromText($1, 4326))
-//         ORDER BY year DESC
-//       `;
-//       queryParams = [boundsWKT];
-//     }
-    
-//     const result = await client.query(yearsQuery, queryParams);
-//     const availableYears = result.rows.map(row => row.year);
-    
-//     res.json({ availableYears });
-    
-//   } catch (error) {
-//     console.error('Error checking kejadian years availability:', error);
-//     res.status(500).json({ error: 'Failed to check kejadian years availability' });
-//   } finally {
-//     client.release();
-//   }
-// });
-
 
 // Endpoint baru: Kerawanan data berdasarkan DAS (bukan koordinat)
 app.get('/api/kerawanan/by-das', async (req, res) => {
@@ -10654,75 +10608,6 @@ app.delete('/api/kejadian/:id', verifyToken, async (req, res) => {
   }
 });
 
-// ================= Mulai perubahan/penambahan ================
-// Endpoint untuk mendapatkan DAS berdasarkan lokasi (kecamatan, kabupaten, provinsi)
-// app.get('/api/das/by-location', async (req, res) => {
-//   const client = await pool.connect();
-  
-//   try {
-//     const { kecamatan, kabupaten, provinsi } = req.query;
-    
-//     if (!kecamatan && !kabupaten && !provinsi) {
-//       return res.status(400).json({ error: 'At least one location parameter required' });
-//     }
-    
-//     // Build WHERE clause dengan AND untuk semua kondisi
-//     const conditions = [];
-//     const params = [];
-//     let paramIndex = 1;
-    
-//     // Kecamatan - exact match
-//     if (kecamatan) {
-//       conditions.push(`LOWER(TRIM(wadmkc)) = LOWER(TRIM($${paramIndex}))`);
-//       params.push(kecamatan);
-//       paramIndex++;
-//     }
-    
-//     // Kabupaten - exact match
-//     if (kabupaten) {
-//       conditions.push(`LOWER(TRIM(wadmkk)) = LOWER(TRIM($${paramIndex}))`);
-//       params.push(kabupaten);
-//       paramIndex++;
-//     }
-    
-//     // Provinsi - exact match
-//     if (provinsi) {
-//       conditions.push(`LOWER(TRIM(wadmpr)) = LOWER(TRIM($${paramIndex}))`);
-//       params.push(provinsi);
-//       paramIndex++;
-//     }
-    
-//     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    
-//     const query = `
-//       SELECT DISTINCT wadmkd as das_name
-//       FROM das_adm
-//       ${whereClause}
-//       ORDER BY wadmkd
-//     `;
-    
-//     console.log('DAS by location Query:', query);
-//     console.log('Params:', params);
-    
-//     const result = await client.query(query, params);
-    
-//     const dasList = result.rows.map(row => row.das_name).filter(Boolean);
-    
-//     console.log('DAS by location results:', dasList.length, 'items found');
-//     if (dasList.length > 0) {
-//       console.log('DAS found:', dasList);
-//     }
-    
-//     res.json({ dasList });
-    
-//   } catch (error) {
-//     console.error('Error fetching DAS by location:', error);
-//     res.status(500).json({ error: 'Failed to fetch DAS: ' + error.message });
-//   } finally {
-//     client.release();
-//   }
-// });
-
 app.get('/api/das/by-location', async (req, res) => {
   try {
     const { kecamatan, kabupaten, provinsi } = req.query;
@@ -11243,303 +11128,6 @@ if (inserted === 0) {
   }
 });
 
-// app.post('/api/layers', shapefileUpload.array('files'), async (req, res) => {
-//   console.log('\n========================================');
-//   console.log('START POST /api/layers (shp2pgsql method)');
-//   console.log('========================================');
-  
-//   const client = await pool.connect();
-//   let uploadedFilePaths = [];
-//   let tableCreated = false;
-//   let progressMonitor = null;
-//   let tempDir = null;
-  
-//   try {
-//     const { tableName, section } = req.body;
-//     const files = req.files;
-    
-//     console.log('Table Name:', tableName);
-//     console.log('Section:', section);
-//     console.log('Files Count:', files?.length);
-    
-//     // Validasi input
-//     if (!tableName || !section) {
-//       return res.status(400).json({ error: 'Table name and section are required' });
-//     }
-    
-//     if (!files || files.length === 0) {
-//       return res.status(400).json({ error: 'No files uploaded' });
-//     }
-    
-//     uploadedFilePaths = files.map(f => f.path);
-    
-//     // Cari .shp
-//     const shpFile = files.find(f => f.originalname.toLowerCase().endsWith('.shp'));
-    
-//     console.log('SHP File:', shpFile ? shpFile.originalname : 'NOT FOUND');
-//     console.log('All files:', files.map(f => f.originalname).join(', '));
-    
-//     if (!shpFile) {
-//       return res.status(400).json({ error: '.shp file is required' });
-//     }
-    
-//     // Sanitize table name
-//     const sanitizedTableName = tableName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-//     console.log('Sanitized Table Name:', sanitizedTableName);
-    
-//     // BEGIN transaction
-//     await client.query('BEGIN');
-//     console.log('Transaction: BEGIN');
-    
-//     // Check if table exists
-//     const tableCheck = await client.query(`
-//       SELECT EXISTS (
-//         SELECT FROM information_schema.tables 
-//         WHERE table_schema = 'public' AND table_name = $1
-//       )
-//     `, [sanitizedTableName]);
-    
-//     if (tableCheck.rows[0].exists) {
-//       await client.query('ROLLBACK');
-//       return res.status(400).json({ error: 'Table already exists: ' + sanitizedTableName });
-//     }
-    
-//     console.log('\n--- Using shp2pgsql Method ---');
-//     sendProgress(sanitizedTableName, 5, 'Preparing shapefile...');
-    
-//     // PENTING: Copy semua files ke satu folder dengan nama yang konsisten
-//     tempDir = path.join(__dirname, 'uploads', 'temp_' + Date.now());
-//     fs.mkdirSync(tempDir, { recursive: true });
-    
-//     const baseName = path.parse(shpFile.originalname).name; // Nama tanpa extension
-    
-//     console.log('Creating temp directory:', tempDir);
-//     console.log('Base name:', baseName);
-    
-//     // Copy dan rename files agar semuanya punya base name yang sama
-//     for (const file of files) {
-//       const ext = path.extname(file.originalname).toLowerCase();
-//       const newFileName = baseName + ext;
-//       const destPath = path.join(tempDir, newFileName);
-      
-//       fs.copyFileSync(file.path, destPath);
-//       console.log(`  Copied: ${file.originalname} -> ${newFileName}`);
-//     }
-    
-//     const tempShpPath = path.join(tempDir, baseName + '.shp');
-    
-//     // Verify files exist
-//     const requiredExts = ['.shp', '.shx', '.dbf'];
-//     for (const ext of requiredExts) {
-//       const filePath = path.join(tempDir, baseName + ext);
-//       if (!fs.existsSync(filePath)) {
-//         throw new Error(`Required file not found: ${baseName}${ext}`);
-//       }
-//       console.log(`  ✓ Found: ${baseName}${ext}`);
-//     }
-    
-//     sendProgress(sanitizedTableName, 10, 'Converting shapefile to SQL...');
-    
-//     // Build shp2pgsql command dengan path yang benar
-//     const shp2pgsqlCmd = `shp2pgsql -I -s 4326 -W UTF-8 "${tempShpPath}" ${sanitizedTableName}`;
-    
-//     console.log('Command:', shp2pgsqlCmd);
-//     console.log('Executing shp2pgsql...');
-    
-//     const { stdout: sqlOutput, stderr: shp2pgsqlError } = await execPromise(shp2pgsqlCmd, {
-//       maxBuffer: 1024 * 1024 * 1000, // 1GB buffer
-//       timeout: 600000 // 10 minutes timeout
-//     });
-    
-//     console.log('shp2pgsql stderr:', shp2pgsqlError);
-    
-//     // Check jika ada error critical
-//     if (shp2pgsqlError && shp2pgsqlError.includes('can not be opened')) {
-//       throw new Error('Shapefile cannot be opened: ' + shp2pgsqlError);
-//     }
-    
-//     console.log('✓ Shapefile converted to SQL');
-//     console.log('SQL size:', (sqlOutput.length / 1024 / 1024).toFixed(2), 'MB');
-    
-//     sendProgress(sanitizedTableName, 15, 'Executing SQL statements...');
-    
-//     // Start monitoring progress
-//     setTimeout(() => {
-//       console.log('Starting progress monitor...');
-//       progressMonitor = monitorTableInsertProgress(sanitizedTableName, 1500);
-//     }, 2000);
-    
-//     // Execute SQL via psql dengan timeout yang lebih lama
-//     console.log('Executing SQL via psql...');
-//     const startTime = Date.now();
-    
-//     await new Promise((resolve, reject) => {
-//       const psql = spawn('psql', [
-//         '-h', dbConfig.host,
-//         '-p', dbConfig.port.toString(),
-//         '-U', dbConfig.user,
-//         '-d', dbConfig.database,
-//         '-v', 'ON_ERROR_STOP=1'
-//       ], {
-//         env: { ...process.env, PGPASSWORD: dbConfig.password }
-//       });
-      
-//       // Pipe SQL output ke psql
-//       psql.stdin.write(sqlOutput);
-//       psql.stdin.end();
-      
-//       let errorOutput = '';
-//       let outputLines = 0;
-      
-//       psql.stdout.on('data', (data) => {
-//         outputLines++;
-//         if (outputLines % 1000 === 0) {
-//           console.log(`  Processed ${outputLines} lines...`);
-//         }
-//       });
-      
-//       psql.stderr.on('data', (data) => {
-//         const output = data.toString();
-//         console.log('psql output:', output.substring(0, 200)); // Log first 200 chars
-        
-//         // Count INSERT statements for progress
-//         if (output.includes('INSERT')) {
-//           const matches = output.match(/INSERT/g);
-//           if (matches) {
-//             console.log(`  INSERTs: ${matches.length}`);
-//           }
-//         }
-        
-//         if (!output.includes('INSERT') && !output.includes('CREATE') && !output.includes('NOTICE')) {
-//           errorOutput += output;
-//         }
-//       });
-      
-//       psql.on('close', (code) => {
-//         console.log(`psql exited with code ${code}`);
-//         if (code === 0) {
-//           resolve();
-//         } else {
-//           reject(new Error(`psql exited with code ${code}: ${errorOutput}`));
-//         }
-//       });
-      
-//       psql.on('error', (err) => {
-//         console.error('psql spawn error:', err);
-//         reject(err);
-//       });
-      
-//       // Timeout protection (1 hour)
-//       setTimeout(() => {
-//         psql.kill();
-//         reject(new Error('SQL execution timeout after 1 hour'));
-//       }, 3600000);
-//     });
-    
-//     const duration = Date.now() - startTime;
-    
-//     // Stop progress monitoring
-//     if (progressMonitor) {
-//       clearInterval(progressMonitor);
-//       progressMonitor = null;
-//     }
-    
-//     console.log(`✓ SQL executed successfully in ${Math.round(duration / 1000)}s`);
-//     sendProgress(sanitizedTableName, 96, 'Saving metadata...');
-    
-//     tableCreated = true;
-    
-//     // Get actual feature count
-//     const countResult = await client.query(`SELECT COUNT(*) as count FROM ${sanitizedTableName}`);
-//     const featureCount = parseInt(countResult.rows[0].count);
-    
-//     console.log(`✓ Total features: ${featureCount.toLocaleString()}`);
-    
-//     // Save metadata
-//     console.log('\n--- Saving Metadata ---');
-//     const metaResult = await client.query(`
-//       INSERT INTO layer_metadata (table_name, section, original_files)
-//       VALUES ($1, $2, $3)
-//       RETURNING id, table_name, section, created_at
-//     `, [sanitizedTableName, section, files.map(f => f.originalname)]);
-    
-//     console.log('✓ Metadata saved');
-    
-//     // Final COMMIT
-//     await client.query('COMMIT');
-//     console.log('✓ Final COMMIT');
-    
-//     // Cleanup
-//     uploadedFilePaths.forEach(fp => {
-//       try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch {}
-//     });
-    
-//     if (tempDir) {
-//       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
-//     }
-    
-//     if (global.gc) global.gc();
-    
-//     sendProgress(sanitizedTableName, 100, `Completed: ${featureCount.toLocaleString()} features`, true);
-    
-//     console.log('\n========================================');
-//     console.log('SUCCESS');
-//     console.log(`Features: ${featureCount.toLocaleString()}`);
-//     console.log(`Duration: ${Math.round(duration / 1000)}s`);
-//     console.log('========================================\n');
-    
-//     res.json({
-//       success: true,
-//       message: `Layer created: ${featureCount.toLocaleString()} features in ${Math.round(duration / 1000)}s`,
-//       layer: {
-//         id: metaResult.rows[0].id.toString(),
-//         name: metaResult.rows[0].table_name,
-//         section: metaResult.rows[0].section,
-//         createdAt: metaResult.rows[0].created_at
-//       },
-//       featureCount: featureCount,
-//       skippedCount: 0,
-//       duration: duration
-//     });
-    
-//   } catch (error) {
-//     // Stop progress monitoring jika error
-//     if (progressMonitor) {
-//       clearInterval(progressMonitor);
-//     }
-    
-//     await client.query('ROLLBACK');
-//     console.error('\n========================================');
-//     console.error('ERROR:', error.message);
-//     console.error('Stack:', error.stack);
-//     console.error('========================================\n');
-    
-//     if (tableCreated && req.body.tableName) {
-//       try {
-//         const tbl = req.body.tableName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-//         await client.query(`DROP TABLE IF EXISTS ${tbl} CASCADE`);
-//         console.log('✓ Rolled back table creation');
-//       } catch (cleanupErr) {
-//         console.error('Error during cleanup:', cleanupErr.message);
-//       }
-//     }
-    
-//     uploadedFilePaths.forEach(fp => {
-//       try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch {}
-//     });
-    
-//     if (tempDir) {
-//       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
-//     }
-    
-//     sendProgress(req.body.tableName || 'unknown', 0, 'Error: ' + error.message, true);
-    
-//     res.status(500).json({ error: error.message });
-//   } finally {
-//     client.release();
-//   }
-// });
-
 // Endpoint untuk delete layer
 app.delete('/api/layers/:id', async (req, res) => {
   const client = await pool.connect();
@@ -11623,227 +11211,6 @@ function sendProgress(tableName, progress, status, done = false) {
     console.log(`Progress sent for ${tableName}: ${progress}% - ${status}`);
   }
 }
-
-// app.get('/api/layers/:tableName/geojson', async (req, res) => {
-//   const client = await pool.connect();
-  
-//   try {
-//     const { tableName } = req.params;
-//     const { bounds, zoom } = req.query;
-    
-//     // Validate table name untuk keamanan
-//     const validationResult = await client.query(
-//       `SELECT table_name FROM layer_metadata WHERE table_name = $1`,
-//       [tableName]
-//     );
-    
-//     if (validationResult.rows.length === 0) {
-//       return res.status(404).json({ error: 'Layer not found' });
-//     }
-    
-//     // Get all columns except geom
-//     const columnsResult = await client.query(`
-//       SELECT column_name 
-//       FROM information_schema.columns 
-//       WHERE table_name = $1 AND column_name != 'geom'
-//       ORDER BY ordinal_position
-//     `, [tableName]);
-    
-//     // Build properties selection - batasi hanya kolom penting
-//     const propsSelect = columnsResult.rows
-//       .slice(0, 10) // Ambil maksimal 10 kolom pertama untuk mengurangi ukuran data
-//       .map(r => `'${r.column_name}', ${r.column_name}`)
-//       .join(', ');
-    
-//     // Tentukan toleransi simplifikasi berdasarkan zoom level
-//     const zoomLevel = zoom ? parseInt(zoom) : 5;
-//     let tolerance;
-//     if (zoomLevel <= 5) tolerance = 0.01;      // Zoom out banyak - simplifikasi agresif
-//     else if (zoomLevel <= 8) tolerance = 0.005;
-//     else if (zoomLevel <= 11) tolerance = 0.001;
-//     else tolerance = 0.0001;                    // Zoom in - detail lebih tinggi
-    
-//     // Build WHERE clause dengan bounds jika ada
-//     let whereClause = 'WHERE geom IS NOT NULL';
-//     if (bounds) {
-//       const [south, west, north, east] = bounds.split(',').map(Number);
-//       const boundsWKT = `POLYGON((${west} ${south}, ${east} ${south}, ${east} ${north}, ${west} ${north}, ${west} ${south}))`;
-//       whereClause += ` AND ST_Intersects(geom, ST_GeomFromText('${boundsWKT}', 4326))`;
-//     }
-    
-//     // Tentukan limit berdasarkan zoom
-//     const limit = zoomLevel <= 8 ? 15000 : zoomLevel <= 11 ? 18000 : 20000;
-    
-//     // Query dengan simplifikasi geometri untuk performa
-//     const query = `
-//       SELECT 
-//         ST_AsGeoJSON(ST_Simplify(geom, ${tolerance})) as geometry,
-//         json_build_object(${propsSelect}) as properties
-//       FROM ${tableName}
-//       ${whereClause}
-//       LIMIT ${limit}
-//     `;
-    
-//     console.log(`Query for ${tableName}: zoom=${zoomLevel}, tolerance=${tolerance}, limit=${limit}`);
-    
-//     const result = await client.query(query);
-    
-//     // Build GeoJSON manually
-//     const features = result.rows.map(row => ({
-//       type: 'Feature',
-//       geometry: JSON.parse(row.geometry),
-//       properties: row.properties
-//     }));
-    
-//     const geojson = {
-//       type: 'FeatureCollection',
-//       features: features
-//     };
-    
-//     console.log(`Returning ${features.length} features for ${tableName}`);
-//     res.json(geojson);
-    
-//   } catch (error) {
-//     console.error('Error fetching GeoJSON:', error);
-//     res.status(500).json({ error: 'Failed to fetch layer data: ' + error.message });
-//   } finally {
-//     client.release();
-//   }
-// });
-
-// app.get('/api/layers/:tableName/geojson', async (req, res) => {
-//   const client = await pool.connect();
-  
-//   try {
-//     const { tableName } = req.params;
-//     const { bounds, zoom, dasFilter } = req.query;
-    
-//     // Validate table name untuk keamanan
-//     const validationResult = await client.query(
-//       `SELECT table_name FROM layer_metadata WHERE table_name = $1`,
-//       [tableName]
-//     );
-    
-//     if (validationResult.rows.length === 0) {
-//       return res.status(404).json({ error: 'Layer not found' });
-//     }
-    
-//     // Get all columns except geom
-//     const columnsResult = await client.query(`
-//       SELECT column_name 
-//       FROM information_schema.columns 
-//       WHERE table_name = $1 AND column_name != 'geom'
-//       ORDER BY ordinal_position
-//     `, [tableName]);
-    
-//     // Build properties selection - ambil semua kolom
-//     const propsSelect = columnsResult.rows
-//       .map(r => `'${r.column_name}', ${r.column_name}`)
-//       .join(', ');
-    
-//     // Tentukan toleransi simplifikasi berdasarkan zoom level
-//     const zoomLevel = zoom ? parseInt(zoom) : 10;
-//     let tolerance;
-    
-//     if (zoomLevel <= 5) {
-//       tolerance = 0.01;
-//       console.log('Zoom level', zoomLevel, '- High simplification (tolerance:', tolerance, ')');
-//     } else if (zoomLevel <= 7) {
-//       tolerance = 0.005;
-//       console.log('Zoom level', zoomLevel, '- Medium simplification (tolerance:', tolerance, ')');
-//     } else if (zoomLevel <= 9) {
-//       tolerance = 0.001;
-//       console.log('Zoom level', zoomLevel, '- Low simplification (tolerance:', tolerance, ')');
-//     } else if (zoomLevel <= 11) {
-//       tolerance = 0.0005;
-//       console.log('Zoom level', zoomLevel, '- Very low simplification (tolerance:', tolerance, ')');
-//     } else {
-//       tolerance = 0;
-//       console.log('Zoom level', zoomLevel, '- NO simplification (full detail)');
-//     }
-    
-//     // Build WHERE clause dan geometry select
-//     let whereClause = 'WHERE geom IS NOT NULL';
-//     let geometrySelect;
-    
-//     if (bounds) {
-//       const [south, west, north, east] = bounds.split(',').map(Number);
-//       const boundsWKT = `POLYGON((${west} ${south}, ${east} ${south}, ${east} ${north}, ${west} ${north}, ${west} ${south}))`;
-      
-//       // Filter: HANYA ambil geometry yang SEPENUHNYA di dalam bounds
-//       // Geometry yang sebagian keluar akan TIDAK ditampilkan sama sekali
-//       whereClause += ` AND ST_Within(geom, ST_GeomFromText('${boundsWKT}', 4326))`;
-      
-//       // Tidak perlu clip karena semua geometry sudah pasti di dalam bounds
-//       if (tolerance > 0) {
-//         geometrySelect = `ST_AsGeoJSON(ST_Simplify(geom, ${tolerance}))`;
-//       } else {
-//         geometrySelect = `ST_AsGeoJSON(geom)`;
-//       }
-      
-//       console.log(`Using ST_Within for strict boundary filtering on ${tableName}`);
-//     } else {
-//       // Tidak ada bounds, gunakan geometry original
-//       if (tolerance > 0) {
-//         geometrySelect = `ST_AsGeoJSON(ST_Simplify(geom, ${tolerance}))`;
-//       } else {
-//         geometrySelect = `ST_AsGeoJSON(geom)`;
-//       }
-//     }
-    
-//     // Add DAS filter if provided and table has nama_das column
-//     if (dasFilter) {
-//       try {
-//         const dasArray = JSON.parse(dasFilter);
-        
-//         // Check if table has nama_das column
-//         const hasNamaDasColumn = columnsResult.rows.some(r => r.column_name === 'nama_das');
-        
-//         if (Array.isArray(dasArray) && dasArray.length > 0 && hasNamaDasColumn) {
-//           const dasConditions = dasArray.map(das => `'${das.replace(/'/g, "''")}'`).join(', ');
-//           whereClause += ` AND nama_das IN (${dasConditions})`;
-//           console.log(`Applied DAS filter to ${tableName}:`, dasArray);
-//         }
-//       } catch (e) {
-//         console.error('Error parsing dasFilter:', e);
-//       }
-//     }
-    
-//     // Query dengan filter ST_Within (strict)
-//     const query = `
-//       SELECT 
-//         ${geometrySelect} as geometry,
-//         json_build_object(${propsSelect}) as properties
-//       FROM ${tableName}
-//       ${whereClause}
-//     `;
-    
-//     console.log(`Query for ${tableName}: zoom=${zoomLevel}, tolerance=${tolerance}${tolerance === 0 ? ' (no simplification)' : ''}`);
-    
-//     const result = await client.query(query);
-    
-//     // Build GeoJSON manually
-//     const features = result.rows.map(row => ({
-//       type: 'Feature',
-//       geometry: JSON.parse(row.geometry),
-//       properties: row.properties
-//     }));
-    
-//     const geojson = {
-//       type: 'FeatureCollection',
-//       features: features
-//     };
-    
-//     console.log(`Returning ${features.length} features for ${tableName}`);
-//     res.json(geojson);
-    
-//   } catch (error) {
-//     console.error('Error fetching GeoJSON:', error);
-//     res.status(500).json({ error: 'Failed to fetch layer data: ' + error.message });
-//   } finally {
-//     client.release();
-//   }
-// });
 
 // ================= Endpoint lengkap yang diganti ================
 // app.get('/api/layers/:tableName/geojson', async (req, res) => {
@@ -12238,7 +11605,7 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
     let propsSelect;
     let needsMapping = false;
 
-    if (tableName === 'tutupan_lahan') {
+    if (tableName === 'tutupan_lahan' || tableName === 'penutupan_lahan_2024' || tableName === 'pl2024') {
       needsMapping = true;
       propsSelect = `'deskripsi_domain', COALESCE(m.deskripsi_domain, '')`;
       if (cols.rows.length) {
@@ -12264,12 +11631,14 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
     let whereSpatial = `l.geom_valid IS NOT NULL`;
     let boundaryJoin = '';
     let params = [];
+    let hasBoundary = false;  // Track apakah ada boundary filter
 
     /* ======================= DAS ======================= */
     if (dasFilter) {
       const arr = JSON.parse(dasFilter);
       const ph = arr.map((_, i) => `$${i + 1}`).join(',');
       params = arr;
+      hasBoundary = true;
 
       boundaryJoin = `
         JOIN das_adm b
@@ -12287,6 +11656,7 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
       const arr = JSON.parse(adminFilter);
       const ph = arr.map((_, i) => `$${i + 1}`).join(',');
       params = arr;
+      hasBoundary = true;
 
       let tbl = 'provinsi', col = 'provinsi';
       if (adminLevel === 'kabupaten') { tbl = 'kab_kota'; col = 'kab_kota'; }
@@ -12316,23 +11686,38 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
       `;
     }
 
-    const FEATURE_LIMIT = 50000;
+    const FEATURE_LIMIT = 100000;
 
     /* ===================== QUERY ===================== */
-    const query = `
-      SELECT
-        ST_AsGeoJSON(
-          ST_Intersection(l.geom_valid, b.geom_valid)
-        ) AS geometry,
-        jsonb_build_object(${propsSelect}) AS properties
-      ${fromClause}
-      ${boundaryJoin}
-      WHERE ${whereSpatial}
-        AND NOT ST_IsEmpty(
-          ST_Intersection(l.geom_valid, b.geom_valid)
-        )
-      LIMIT ${FEATURE_LIMIT}
-    `;
+    let query;
+    
+    if (hasBoundary) {
+      // Jika ada boundary filter (DAS atau Admin), gunakan ST_Intersection
+      query = `
+        SELECT
+          ST_AsGeoJSON(
+            ST_Intersection(l.geom_valid, b.geom_valid)
+          ) AS geometry,
+          jsonb_build_object(${propsSelect}) AS properties
+        ${fromClause}
+        ${boundaryJoin}
+        WHERE ${whereSpatial}
+          AND NOT ST_IsEmpty(
+            ST_Intersection(l.geom_valid, b.geom_valid)
+          )
+        LIMIT ${FEATURE_LIMIT}
+      `;
+    } else {
+      // Jika tidak ada boundary filter, gunakan geometry langsung
+      query = `
+        SELECT
+          ST_AsGeoJSON(l.geom_valid) AS geometry,
+          jsonb_build_object(${propsSelect}) AS properties
+        ${fromClause}
+        WHERE ${whereSpatial}
+        LIMIT ${FEATURE_LIMIT}
+      `;
+    }
 
     const result = await client.query(query, params);
 
@@ -12354,6 +11739,78 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
   }
 });
 
+app.get('/api/penutupan-lahan-2024-by-das', async (req, res) => {
+  try {
+    const { das } = req.query;
+    
+    if (!das) {
+      return res.status(400).json({ 
+        error: 'Missing required parameter: das' 
+      });
+    }
+
+    console.log('Fetching penutupan lahan 2024 for DAS:', das);
+
+    // Query untuk cek kolom yang ada
+    const checkColumnsQuery = `
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'penutupan_lahan_2024' 
+        AND column_name IN ('n_a', 'luas_ha', 'shape_area', 'luasan')
+    `;
+    
+    const colCheck = await pool.query(checkColumnsQuery);
+    const availableColumns = colCheck.rows.map(r => r.column_name);
+    
+    console.log('Available area columns in penutupan_lahan_2024:', availableColumns);
+    
+    // Tentukan kolom luas yang digunakan
+    let luasColumn = 'shape_area'; // default
+    if (availableColumns.includes('luas_ha')) {
+      luasColumn = 'luas_ha';
+    } else if (availableColumns.includes('n_a')) {
+      luasColumn = 'n_a';
+    } else if (availableColumns.includes('luasan')) {
+      luasColumn = 'luasan';
+    }
+    
+    console.log('Using area column:', luasColumn);
+
+    const query = `
+      SELECT 
+        pl.pl2024_id,
+        COALESCE(mpl.deskripsi_domain, 'Penutupan Lahan ' || pl.pl2024_id::text) as deskripsi_domain,
+        COUNT(*) as count,
+        SUM(pl.${luasColumn}) as total_luas_ha
+      FROM penutupan_lahan_2024 pl
+      LEFT JOIN mapping_penutupan_lahan mpl 
+        ON pl.pl2024_id::text = mpl.kode_domain::text
+      WHERE pl.geom_valid IS NOT NULL
+        AND ST_Intersects(
+          pl.geom_valid,
+          (SELECT ST_Union(geom_valid) FROM das_adm WHERE nama_das = $1)
+        )
+      GROUP BY pl.pl2024_id, mpl.deskripsi_domain
+      ORDER BY total_luas_ha DESC
+    `;
+    
+    const result = await pool.query(query, [das]);
+    
+    console.log(`Found ${result.rows.length} penutupan lahan 2024 types in DAS`);
+    
+    res.json({
+      success: true,
+      data: result.rows
+    });
+    
+  } catch (error) {
+    console.error('Error fetching penutupan lahan 2024 by DAS:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch penutupan lahan 2024 data',
+      details: error.message 
+    });
+  }
+});
 
   app.get('/api/das/by-coordinates', async (req, res) => {
   const client = await pool.connect();
@@ -12482,7 +11939,10 @@ app.get('/api/areas/search', async (req, res) => {
   try {
     const { query, level } = req.query;
     
+    console.log('🔍 [SEARCH] Incoming request:', { query, level });
+    
     if (!query || query.trim().length < 2) {
+      console.log('❌ [SEARCH] Query too short or empty');
       return res.json([]);
     }
     
@@ -12490,109 +11950,137 @@ app.get('/api/areas/search', async (req, res) => {
       return res.status(400).json({ error: 'Level parameter required (provinsi/kabupaten/kecamatan/kelurahan)' });
     }
     
-    const searchPattern = `%${query.toLowerCase()}%`;
+    const searchPattern = `%${query.toLowerCase().trim()}%`;
+    console.log('📝 [SEARCH] Search pattern:', searchPattern);
+    
     let result;
     
     switch(level.toLowerCase()) {
-  case 'provinsi':
-  const provinsiResult = await client.query(`
-    SELECT 
-      provinsi,
-      ST_AsGeoJSON(ST_SetSRID(ST_Union(geom), 4326)) as geom_json
-    FROM provinsi
-    WHERE LOWER(provinsi) LIKE $1
-    GROUP BY provinsi
-    ORDER BY provinsi
-    LIMIT 50
-  `, [searchPattern]);
-  
-  return res.json(provinsiResult.rows.map(row => ({
-    label: row.provinsi,
-    provinsi: row.provinsi,
-    level: 'provinsi',
-    geom: row.geom_json ? JSON.parse(row.geom_json) : null
-  })));
-    
-  case 'kabupaten':
-  const kabupatenResult = await client.query(`
-    SELECT 
-      kab_kota,
-      provinsi,
-      ST_AsGeoJSON(ST_SetSRID(ST_Union(geom), 4326)) as geom_json
-    FROM kab_kota
-    WHERE LOWER(kab_kota) LIKE $1
-    GROUP BY kab_kota, provinsi
-    ORDER BY kab_kota
-    LIMIT 50
-  `, [searchPattern]);
-  
-  return res.json(kabupatenResult.rows.map(row => ({
-    label: `${row.kab_kota}, ${row.provinsi}`,
-    kab_kota: row.kab_kota,
-    provinsi: row.provinsi,
-    level: 'kabupaten',
-    geom: row.geom_json ? JSON.parse(row.geom_json) : null
-  })));
-    
-  case 'kecamatan':
-  const kecamatanResult = await client.query(`
-    SELECT 
-      kecamatan,
-      kab_kota,
-      provinsi,
-      ST_AsGeoJSON(ST_SetSRID(ST_Union(geom), 4326)) as geom_json
-    FROM kecamatan
-    WHERE LOWER(kecamatan) LIKE $1
-    GROUP BY kecamatan, kab_kota, provinsi
-    ORDER BY kecamatan
-    LIMIT 50
-  `, [searchPattern]);
-  
-  return res.json(kecamatanResult.rows.map(row => ({
-    label: `${row.kecamatan}, ${row.kab_kota}, ${row.provinsi}`,
-    kecamatan: row.kecamatan,
-    kab_kota: row.kab_kota,
-    provinsi: row.provinsi,
-    level: 'kecamatan',
-    geom: row.geom_json ? JSON.parse(row.geom_json) : null
-  })));
-    
-  case 'kelurahan':
-  const kelurahanResult = await client.query(`
-    SELECT 
-      kel_desa,
-      kecamatan,
-      kab_kota,
-      provinsi,
-      ST_AsGeoJSON(ST_SetSRID(ST_Union(geom), 4326)) as geom_json
-    FROM kel_desa
-    WHERE LOWER(kel_desa) LIKE $1
-    GROUP BY kel_desa, kecamatan, kab_kota, provinsi
-    ORDER BY kel_desa
-    LIMIT 50
-  `, [searchPattern]);
-  
-  return res.json(kelurahanResult.rows.map(row => ({
-    label: `${row.kel_desa}, ${row.kecamatan}, ${row.kab_kota}, ${row.provinsi}`,
-    kel_desa: row.kel_desa,
-    kecamatan: row.kecamatan,
-    kab_kota: row.kab_kota,
-    provinsi: row.provinsi,
-    level: 'kelurahan',
-    geom: row.geom_json ? JSON.parse(row.geom_json) : null
-  })));
-    
-  default:
-    return res.status(400).json({ error: 'Invalid level. Use: provinsi, kabupaten, kecamatan, or kelurahan' });
-}
+      case 'provinsi':
+        console.log('🗺️  [SEARCH] Searching provinsi...');
+        const provinsiResult = await client.query(`
+          SELECT 
+            provinsi,
+            ST_AsGeoJSON(ST_SetSRID(ST_Union(geom_valid), 4326)) as geom_json
+          FROM provinsi
+          WHERE LOWER(provinsi) LIKE $1
+          GROUP BY provinsi
+          ORDER BY provinsi
+          LIMIT 50
+        `, [searchPattern]);
+        
+        console.log(`✅ [SEARCH] Found ${provinsiResult.rows.length} provinsi results`);
+        if (provinsiResult.rows.length > 0) {
+          console.log('📋 [SEARCH] Sample results:', provinsiResult.rows.slice(0, 3).map(r => r.provinsi));
+        }
+        
+        return res.json(provinsiResult.rows.map(row => ({
+          label: row.provinsi,
+          provinsi: row.provinsi,
+          level: 'provinsi',
+          geom: row.geom_json ? JSON.parse(row.geom_json) : null
+        })));
+      
+      case 'kabupaten':
+        console.log('🗺️  [SEARCH] Searching kabupaten...');
+        const kabupatenResult = await client.query(`
+          SELECT 
+            kab_kota,
+            provinsi,
+            ST_AsGeoJSON(ST_SetSRID(ST_Union(geom_valid), 4326)) as geom_json
+          FROM kab_kota
+          WHERE LOWER(kab_kota) LIKE $1
+          GROUP BY kab_kota, provinsi
+          ORDER BY kab_kota
+          LIMIT 50
+        `, [searchPattern]);
+        
+        console.log(`✅ [SEARCH] Found ${kabupatenResult.rows.length} kabupaten results`);
+        if (kabupatenResult.rows.length > 0) {
+          console.log('📋 [SEARCH] Sample results:', kabupatenResult.rows.slice(0, 3).map(r => r.kab_kota));
+        }
+        
+        return res.json(kabupatenResult.rows.map(row => ({
+          label: `${row.kab_kota}, ${row.provinsi}`,
+          kab_kota: row.kab_kota,
+          provinsi: row.provinsi,
+          level: 'kabupaten',
+          geom: row.geom_json ? JSON.parse(row.geom_json) : null
+        })));
+      
+      case 'kecamatan':
+        console.log('🗺️  [SEARCH] Searching kecamatan...');
+        const kecamatanResult = await client.query(`
+          SELECT 
+            kecamatan,
+            kab_kota,
+            provinsi,
+            ST_AsGeoJSON(ST_SetSRID(ST_Union(geom_valid), 4326)) as geom_json
+          FROM kecamatan
+          WHERE LOWER(kecamatan) LIKE $1
+          GROUP BY kecamatan, kab_kota, provinsi
+          ORDER BY kecamatan
+          LIMIT 50
+        `, [searchPattern]);
+        
+        console.log(`✅ [SEARCH] Found ${kecamatanResult.rows.length} kecamatan results`);
+        if (kecamatanResult.rows.length > 0) {
+          console.log('📋 [SEARCH] Sample results:', kecamatanResult.rows.slice(0, 3).map(r => r.kecamatan));
+        }
+        
+        return res.json(kecamatanResult.rows.map(row => ({
+          label: `${row.kecamatan}, ${row.kab_kota}, ${row.provinsi}`,
+          kecamatan: row.kecamatan,
+          kab_kota: row.kab_kota,
+          provinsi: row.provinsi,
+          level: 'kecamatan',
+          geom: row.geom_json ? JSON.parse(row.geom_json) : null
+        })));
+      
+      case 'kelurahan':
+        console.log('🗺️  [SEARCH] Searching kelurahan...');
+        const kelurahanResult = await client.query(`
+          SELECT 
+            kel_desa,
+            kecamatan,
+            kab_kota,
+            provinsi,
+            ST_AsGeoJSON(ST_SetSRID(ST_Union(geom_valid), 4326)) as geom_json
+          FROM kel_desa
+          WHERE LOWER(kel_desa) LIKE $1
+          GROUP BY kel_desa, kecamatan, kab_kota, provinsi
+          ORDER BY kel_desa
+          LIMIT 50
+        `, [searchPattern]);
+        
+        console.log(`✅ [SEARCH] Found ${kelurahanResult.rows.length} kelurahan results`);
+        if (kelurahanResult.rows.length > 0) {
+          console.log('📋 [SEARCH] Sample results:', kelurahanResult.rows.slice(0, 3).map(r => r.kel_desa));
+        }
+        
+        return res.json(kelurahanResult.rows.map(row => ({
+          label: `${row.kel_desa}, ${row.kecamatan}, ${row.kab_kota}, ${row.provinsi}`,
+          kel_desa: row.kel_desa,
+          kecamatan: row.kecamatan,
+          kab_kota: row.kab_kota,
+          provinsi: row.provinsi,
+          level: 'kelurahan',
+          geom: row.geom_json ? JSON.parse(row.geom_json) : null
+        })));
+      
+      default:
+        console.log('❌ [SEARCH] Invalid level:', level);
+        return res.status(400).json({ error: 'Invalid level. Use: provinsi, kabupaten, kecamatan, or kelurahan' });
+    }
     
   } catch (error) {
-    console.error('Error searching areas:', error);
-    res.status(500).json({ error: 'Failed to search areas' });
+    console.error('❌ [SEARCH] Error:', error);
+    res.status(500).json({ error: 'Failed to search areas: ' + error.message });
   } finally {
     client.release();
   }
 });
+
 
 // Endpoint untuk mendapatkan bounds dari area yang dipilih - UPDATE
 app.post('/api/areas/bounds', async (req, res) => {
@@ -12632,7 +12120,7 @@ app.post('/api/areas/bounds', async (req, res) => {
       }).join(' OR ');
       
       unionQueries.push(`
-        SELECT ST_Extent(geom) as extent
+        SELECT ST_Extent(geom_valid) as extent
         FROM provinsi
         WHERE ${provinsiConditions}
       `);
@@ -12646,7 +12134,7 @@ app.post('/api/areas/bounds', async (req, res) => {
       }).join(' OR ');
       
       unionQueries.push(`
-        SELECT ST_Extent(geom) as extent
+        SELECT ST_Extent(geom_valid) as extent
         FROM kab_kota
         WHERE ${kabupatenConditions}
       `);
@@ -12660,7 +12148,7 @@ app.post('/api/areas/bounds', async (req, res) => {
       }).join(' OR ');
       
       unionQueries.push(`
-        SELECT ST_Extent(geom) as extent
+        SELECT ST_Extent(geom_valid) as extent
         FROM kecamatan
         WHERE ${kecamatanConditions}
       `);
@@ -12674,7 +12162,7 @@ app.post('/api/areas/bounds', async (req, res) => {
       }).join(' OR ');
       
       unionQueries.push(`
-        SELECT ST_Extent(geom) as extent
+        SELECT ST_Extent(geom_valid) as extent
         FROM kel_desa
         WHERE ${kelurahanConditions}
       `);
@@ -12864,10 +12352,10 @@ app.post('/api/das/bounds', async (req, res) => {
     
     const query = `
       SELECT 
-        ST_XMin(ST_Extent(geom)) as min_lng,
-        ST_YMin(ST_Extent(geom)) as min_lat,
-        ST_XMax(ST_Extent(geom)) as max_lng,
-        ST_YMax(ST_Extent(geom)) as max_lat
+        ST_XMin(ST_Extent(geom_valid)) as min_lng,
+        ST_YMin(ST_Extent(geom_valid)) as min_lat,
+        ST_XMax(ST_Extent(geom_valid)) as max_lng,
+        ST_YMax(ST_Extent(geom_valid)) as max_lat
       FROM das_adm
       WHERE nama_das IN (${placeholders})
     `;
@@ -12906,6 +12394,144 @@ app.get('/api/tutupan-lahan/data', async (req, res) => {
         mpl.deskripsi_domain,
         SUM(tl.luas_ha) as luas_total
       FROM tutupan_lahan tl
+      LEFT JOIN mapping_penutupan_lahan mpl ON tl.pl2024_id::text = mpl.kode_domain
+    `;
+    
+    const conditions = [];
+    const params = [];
+    let paramIndex = 1;
+    
+    // Filter by bounds if provided
+    if (bounds) {
+      const [minLat, minLng, maxLat, maxLng] = bounds.split(',').map(Number);
+      conditions.push(`ST_Intersects(
+        tl.geom,
+        ST_MakeEnvelope($${paramIndex}, $${paramIndex+1}, $${paramIndex+2}, $${paramIndex+3}, 4326)
+      )`);
+      params.push(minLng, minLat, maxLng, maxLat);
+      paramIndex += 4;
+    }
+    
+    // Filter by DAS if provided
+    if (dasFilter) {
+      try {
+        const dasArray = JSON.parse(dasFilter);
+        if (dasArray && dasArray.length > 0) {
+          const dasPlaceholders = dasArray.map((_, i) => `$${paramIndex + i}`).join(',');
+          conditions.push(`tl.nama_das IN (${dasPlaceholders})`);
+          params.push(...dasArray);
+          paramIndex += dasArray.length;
+        }
+      } catch (e) {
+        console.error('Error parsing dasFilter:', e);
+      }
+    }
+    
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+    
+    query += `
+      GROUP BY tl.pl2024_id, mpl.deskripsi_domain
+      ORDER BY tl.pl2024_id
+    `;
+    
+    console.log('Executing tutupan lahan query with params:', params);
+    const result = await pool.query(query, params);
+    console.log('Tutupan lahan data fetched:', result.rows.length, 'rows');
+    
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching tutupan lahan data:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+app.get('/api/penutupan-lahan-2024/data', async (req, res) => {
+  try {
+    const { bounds, dasFilter } = req.query;
+    
+    let query = `
+      SELECT DISTINCT 
+        tl.pl2024_id,
+        mpl.deskripsi_domain,
+        SUM(tl.luas_ha) as luas_total
+      FROM penutupan_lahan_2024 tl
+      LEFT JOIN mapping_penutupan_lahan mpl ON tl.pl2024_id::text = mpl.kode_domain
+    `;
+    
+    const conditions = [];
+    const params = [];
+    let paramIndex = 1;
+    
+    // Filter by bounds if provided
+    if (bounds) {
+      const [minLat, minLng, maxLat, maxLng] = bounds.split(',').map(Number);
+      conditions.push(`ST_Intersects(
+        tl.geom,
+        ST_MakeEnvelope($${paramIndex}, $${paramIndex+1}, $${paramIndex+2}, $${paramIndex+3}, 4326)
+      )`);
+      params.push(minLng, minLat, maxLng, maxLat);
+      paramIndex += 4;
+    }
+    
+    // Filter by DAS if provided
+    if (dasFilter) {
+      try {
+        const dasArray = JSON.parse(dasFilter);
+        if (dasArray && dasArray.length > 0) {
+          const dasPlaceholders = dasArray.map((_, i) => `$${paramIndex + i}`).join(',');
+          conditions.push(`tl.nama_das IN (${dasPlaceholders})`);
+          params.push(...dasArray);
+          paramIndex += dasArray.length;
+        }
+      } catch (e) {
+        console.error('Error parsing dasFilter:', e);
+      }
+    }
+    
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+    
+    query += `
+      GROUP BY tl.pl2024_id, mpl.deskripsi_domain
+      ORDER BY tl.pl2024_id
+    `;
+    
+    console.log('Executing tutupan lahan query with params:', params);
+    const result = await pool.query(query, params);
+    console.log('Tutupan lahan data fetched:', result.rows.length, 'rows');
+    
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching tutupan lahan data:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+app.get('/api/pl-2024/data', async (req, res) => {
+  try {
+    const { bounds, dasFilter } = req.query;
+    
+    let query = `
+      SELECT DISTINCT 
+        tl.pl2024_id,
+        mpl.deskripsi_domain,
+        SUM(tl.luas_ha) as luas_total
+      FROM pl2024 tl
       LEFT JOIN mapping_penutupan_lahan mpl ON tl.pl2024_id::text = mpl.kode_domain
     `;
     
@@ -13033,6 +12659,351 @@ app.get('/api/geologi/data', async (req, res) => {
     });
   }
 });
+
+// ================= Tambahkan endpoint debugging setelah endpoint /api/areas/bounds ================
+
+// DEBUG ENDPOINT - Cek layer yang ada di bounds tertentu
+app.post('/api/debug/layers-in-bounds', async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    const { bounds, tableName } = req.body;
+    
+    if (!bounds) {
+      return res.status(400).json({ error: 'Bounds required (format: [minLat, minLng, maxLat, maxLng])' });
+    }
+    
+    const [minLat, minLng, maxLat, maxLng] = bounds;
+    
+    console.log('🔍 [DEBUG] Checking layers in bounds:', { minLat, minLng, maxLat, maxLng });
+    
+    // Jika tableName spesifik diberikan
+    if (tableName) {
+      const query = `
+        SELECT 
+          COUNT(*) as feature_count,
+          ST_AsGeoJSON(ST_Extent(geom_valid)) as bbox
+        FROM ${tableName}
+        WHERE geom_valid IS NOT NULL
+          AND geom_valid && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+          AND ST_Intersects(
+            geom_valid,
+            ST_MakeEnvelope($1, $2, $3, $4, 4326)
+          )
+      `;
+      
+      const result = await client.query(query, [minLng, minLat, maxLng, maxLat]);
+      
+      console.log(`✅ [DEBUG] Table ${tableName}:`, result.rows[0]);
+      
+      return res.json({
+        tableName,
+        bounds: { minLat, minLng, maxLat, maxLng },
+        featureCount: parseInt(result.rows[0].feature_count),
+        bbox: result.rows[0].bbox ? JSON.parse(result.rows[0].bbox) : null
+      });
+    }
+    
+    // Jika tidak ada tableName, cek semua layer
+    const layersQuery = await client.query(`
+      SELECT table_name, section 
+      FROM layer_metadata 
+      ORDER BY section, table_name
+    `);
+    
+    const results = [];
+    
+    for (const layer of layersQuery.rows) {
+      try {
+        const query = `
+          SELECT 
+            COUNT(*) as feature_count,
+            ST_AsGeoJSON(ST_Extent(geom_valid)) as bbox
+          FROM ${layer.table_name}
+          WHERE geom_valid IS NOT NULL
+            AND geom_valid && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+            AND ST_Intersects(
+              geom_valid,
+              ST_MakeEnvelope($1, $2, $3, $4, 4326)
+            )
+        `;
+        
+        const result = await client.query(query, [minLng, minLat, maxLng, maxLat]);
+        const count = parseInt(result.rows[0].feature_count);
+        
+        if (count > 0) {
+          results.push({
+            tableName: layer.table_name,
+            section: layer.section,
+            featureCount: count,
+            bbox: result.rows[0].bbox ? JSON.parse(result.rows[0].bbox) : null
+          });
+          
+          console.log(`✅ [DEBUG] ${layer.table_name}: ${count} features`);
+        } else {
+          console.log(`⚪ [DEBUG] ${layer.table_name}: 0 features`);
+        }
+      } catch (error) {
+        console.error(`❌ [DEBUG] Error checking ${layer.table_name}:`, error.message);
+        results.push({
+          tableName: layer.table_name,
+          section: layer.section,
+          error: error.message
+        });
+      }
+    }
+    
+    // Sort by feature count descending
+    results.sort((a, b) => (b.featureCount || 0) - (a.featureCount || 0));
+    
+    console.log(`✅ [DEBUG] Total tables checked: ${layersQuery.rows.length}`);
+    console.log(`✅ [DEBUG] Tables with data: ${results.filter(r => r.featureCount > 0).length}`);
+    
+    res.json({
+      bounds: { minLat, minLng, maxLat, maxLng },
+      totalTablesChecked: layersQuery.rows.length,
+      tablesWithData: results.filter(r => r.featureCount > 0).length,
+      results: results
+    });
+    
+  } catch (error) {
+    console.error('❌ [DEBUG] Error:', error);
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+// DEBUG ENDPOINT - Cek layer yang ada di area administratif
+app.post('/api/debug/layers-in-admin', async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    const { level, name, tableName } = req.body;
+    
+    if (!level || !name) {
+      return res.status(400).json({ 
+        error: 'Level and name required',
+        example: { level: 'provinsi', name: 'DKI Jakarta' }
+      });
+    }
+    
+    const adminTables = {
+      provinsi: 'provinsi',
+      kabupaten: 'kab_kota',
+      kecamatan: 'kecamatan',
+      kelurahan: 'kel_desa'
+    };
+    
+    const adminTable = adminTables[level];
+    const adminColumn = level === 'kabupaten' ? 'kab_kota' : level === 'kelurahan' ? 'kel_desa' : level;
+    
+    console.log('🔍 [DEBUG] Checking layers in admin area:', { level, name });
+    
+    // Get admin area geometry
+    const adminQuery = `
+      SELECT ST_AsGeoJSON(ST_Union(geom_valid)) as geom_json
+      FROM ${adminTable}
+      WHERE ${adminColumn} = $1
+    `;
+    
+    const adminResult = await client.query(adminQuery, [name]);
+    
+    if (adminResult.rows.length === 0 || !adminResult.rows[0].geom_json) {
+      return res.status(404).json({ error: `${level} "${name}" not found` });
+    }
+    
+    // Jika tableName spesifik diberikan
+    if (tableName) {
+      const query = `
+        SELECT 
+          COUNT(*) as feature_count,
+          ST_AsGeoJSON(ST_Extent(l.geom_valid)) as bbox
+        FROM ${tableName} l, ${adminTable} a
+        WHERE a.${adminColumn} = $1
+          AND l.geom_valid && a.geom_valid
+          AND ST_Intersects(l.geom_valid, a.geom_valid)
+      `;
+      
+      const result = await client.query(query, [name]);
+      
+      console.log(`✅ [DEBUG] Table ${tableName} in ${level} ${name}:`, result.rows[0]);
+      
+      return res.json({
+        tableName,
+        adminArea: { level, name },
+        featureCount: parseInt(result.rows[0].feature_count),
+        bbox: result.rows[0].bbox ? JSON.parse(result.rows[0].bbox) : null
+      });
+    }
+    
+    // Jika tidak ada tableName, cek semua layer
+    const layersQuery = await client.query(`
+      SELECT table_name, section 
+      FROM layer_metadata 
+      ORDER BY section, table_name
+    `);
+    
+    const results = [];
+    
+    for (const layer of layersQuery.rows) {
+      try {
+        const query = `
+          SELECT 
+            COUNT(*) as feature_count,
+            ST_AsGeoJSON(ST_Extent(l.geom_valid)) as bbox
+          FROM ${layer.table_name} l, ${adminTable} a
+          WHERE a.${adminColumn} = $1
+            AND l.geom_valid && a.geom_valid
+            AND ST_Intersects(l.geom_valid, a.geom_valid)
+        `;
+        
+        const result = await client.query(query, [name]);
+        const count = parseInt(result.rows[0].feature_count);
+        
+        if (count > 0) {
+          results.push({
+            tableName: layer.table_name,
+            section: layer.section,
+            featureCount: count,
+            bbox: result.rows[0].bbox ? JSON.parse(result.rows[0].bbox) : null
+          });
+          
+          console.log(`✅ [DEBUG] ${layer.table_name}: ${count} features`);
+        } else {
+          console.log(`⚪ [DEBUG] ${layer.table_name}: 0 features`);
+        }
+      } catch (error) {
+        console.error(`❌ [DEBUG] Error checking ${layer.table_name}:`, error.message);
+        results.push({
+          tableName: layer.table_name,
+          section: layer.section,
+          error: error.message
+        });
+      }
+    }
+    
+    results.sort((a, b) => (b.featureCount || 0) - (a.featureCount || 0));
+    
+    res.json({
+      adminArea: { level, name },
+      totalTablesChecked: layersQuery.rows.length,
+      tablesWithData: results.filter(r => r.featureCount > 0).length,
+      results: results
+    });
+    
+  } catch (error) {
+    console.error('❌ [DEBUG] Error:', error);
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+// DEBUG ENDPOINT - Cek layer yang ada di DAS
+app.post('/api/debug/layers-in-das', async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    const { dasName, tableName } = req.body;
+    
+    if (!dasName) {
+      return res.status(400).json({ 
+        error: 'DAS name required',
+        example: { dasName: 'Ciliwung' }
+      });
+    }
+    
+    console.log('🔍 [DEBUG] Checking layers in DAS:', dasName);
+    
+    // Jika tableName spesifik diberikan
+    if (tableName) {
+      const query = `
+        SELECT 
+          COUNT(*) as feature_count,
+          ST_AsGeoJSON(ST_Extent(l.geom_valid)) as bbox
+        FROM ${tableName} l, das_adm d
+        WHERE d.nama_das = $1
+          AND l.geom_valid && d.geom_valid
+          AND ST_Intersects(l.geom_valid, d.geom_valid)
+      `;
+      
+      const result = await client.query(query, [dasName]);
+      
+      console.log(`✅ [DEBUG] Table ${tableName} in DAS ${dasName}:`, result.rows[0]);
+      
+      return res.json({
+        tableName,
+        dasName,
+        featureCount: parseInt(result.rows[0].feature_count),
+        bbox: result.rows[0].bbox ? JSON.parse(result.rows[0].bbox) : null
+      });
+    }
+    
+    // Jika tidak ada tableName, cek semua layer
+    const layersQuery = await client.query(`
+      SELECT table_name, section 
+      FROM layer_metadata 
+      ORDER BY section, table_name
+    `);
+    
+    const results = [];
+    
+    for (const layer of layersQuery.rows) {
+      try {
+        const query = `
+          SELECT 
+            COUNT(*) as feature_count,
+            ST_AsGeoJSON(ST_Extent(l.geom_valid)) as bbox
+          FROM ${layer.table_name} l, das_adm d
+          WHERE d.nama_das = $1
+            AND l.geom_valid && d.geom_valid
+            AND ST_Intersects(l.geom_valid, d.geom_valid)
+        `;
+        
+        const result = await client.query(query, [dasName]);
+        const count = parseInt(result.rows[0].feature_count);
+        
+        if (count > 0) {
+          results.push({
+            tableName: layer.table_name,
+            section: layer.section,
+            featureCount: count,
+            bbox: result.rows[0].bbox ? JSON.parse(result.rows[0].bbox) : null
+          });
+          
+          console.log(`✅ [DEBUG] ${layer.table_name}: ${count} features`);
+        } else {
+          console.log(`⚪ [DEBUG] ${layer.table_name}: 0 features`);
+        }
+      } catch (error) {
+        console.error(`❌ [DEBUG] Error checking ${layer.table_name}:`, error.message);
+        results.push({
+          tableName: layer.table_name,
+          section: layer.section,
+          error: error.message
+        });
+      }
+    }
+    
+    results.sort((a, b) => (b.featureCount || 0) - (a.featureCount || 0));
+    
+    res.json({
+      dasName,
+      totalTablesChecked: layersQuery.rows.length,
+      tablesWithData: results.filter(r => r.featureCount > 0).length,
+      results: results
+    });
+    
+  } catch (error) {
+    console.error('❌ [DEBUG] Error:', error);
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ================= Akhir penambahan ================
 
 // 5. Test Route - Check server status
 app.get('/api/health', (req, res) => {

@@ -99,31 +99,31 @@ export default function DetailKejadianBencana() {
 
   // Function untuk fetch tutupan lahan data
   const fetchTutupanLahanData = async () => {
-    if (!incidentData?.das) return;
+  if (!incidentData?.das) return;
+
+  try {
+    const response = await fetch(
+      `${API_URL}/api/penutupan-lahan-2024-by-das?das=${encodeURIComponent(incidentData.das)}`
+    );
     
-    try {
-      // Gunakan DAS untuk agregasi (bukan koordinat)
-      const response = await fetch(
-        `${API_URL}/api/tutupan-lahan/by-das?das=${encodeURIComponent(incidentData.das)}`
-      );
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch tutupan lahan data');
-      }
-      
-      const data = await response.json();
-      
-      if (data.success && data.data) {
-        console.log('📊 Chart data pl2024_ids:', data.data.map(d => d.pl2024_id));
-        console.log('📊 Chart data:', data.data);
-        
-        setTutupanLahanData(data.data);
-      }
-    } catch (error) {
-      console.error('Error fetching tutupan lahan data:', error);
-      setTutupanLahanData([]);
+    if (!response.ok) {
+      throw new Error('Failed to fetch tutupan lahan data');
     }
-  };
+
+    const result = await response.json();
+    
+    if (result.success && result.data) {
+      // Extract unique pl2024_ids untuk debug
+      const pl2024_ids = result.data.map((item: any) => item.pl2024_id);
+      console.log('📊 Chart data pl2024_ids:', pl2024_ids);
+      console.log('📊 Chart data:', result.data);
+      
+      setTutupanLahanData(result.data);
+    }
+  } catch (error) {
+    console.error('Error fetching tutupan lahan data:', error);
+  }
+};
 
   // Function untuk fetch DAS geometry
 const fetchDasGeometry = async () => {
@@ -152,63 +152,81 @@ const fetchDasGeometry = async () => {
   };
 
   const fetchTutupanLahanLayer = async () => {
-    if (!incidentData?.das) return;
+  if (!incidentData?.das) {
+    console.log('⚠️ No DAS found in incident data');
+    return;
+  }
+  
+  setIsLoadingLayers(true);
+  
+  try {
+    const dasFilter = JSON.stringify([incidentData.das]);
+    const bounds = '-11,95,6,141';
+    const zoom = 13;
     
-    setIsLoadingLayers(true);
+    const url = `${API_URL}/api/layers/penutupan_lahan_2024/geojson?bounds=${bounds}&zoom=${zoom}&dasFilter=${encodeURIComponent(dasFilter)}`;
     
-    try {
-      const dasFilter = JSON.stringify([incidentData.das]);
-      const bounds = '-11,95,6,141';
-      const zoom = 13;
-      
-      const url = `${API_URL}/api/layers/tutupan_lahan/geojson?bounds=${bounds}&zoom=${zoom}&dasFilter=${encodeURIComponent(dasFilter)}`;
-      
-      console.log('Fetching tutupan_lahan layer with DAS filter:', incidentData.das);
-      
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch tutupan_lahan layer');
-      }
-      
-      const data = await response.json();
-      
-      if (data.features && data.features.length > 0) {
-        // Generate colors untuk setiap unique pl2024_id, gunakan index yang konsisten
-        const uniquePl2024Ids = Array.from(new Set(
-          data.features.map(f => f.properties.pl2024_id)
-        )).sort((a, b) => a - b); // Sort numerically
-        
-        console.log('🎨 Unique pl2024_ids from layer:', uniquePl2024Ids);
-        
-        const colors = {};
-        uniquePl2024Ids.forEach((pl2024_id, idx) => {
-          const color = getBarColor(idx);
-          colors[pl2024_id] = color;
-          console.log(`  pl2024_id ${pl2024_id} → ${color} (index ${idx})`);
-        });
-        
-        console.log('Generated colors:', colors);
-        
-        // SET COLORS DULU sebelum set layer dan fetch data
-        setTutupanLahanColors(colors);
-        
-        // Tunggu sebentar agar state colors ter-update
-        setTimeout(() => {
-          setTutupanLahanLayer(data);
-          console.log('Tutupan lahan layer loaded:', data.features.length, 'features');
-          
-          // SETELAH colors dan layer di-set, fetch data untuk chart
-          fetchTutupanLahanData();
-        }, 0);
-      }
-    } catch (error) {
-      console.error('Error fetching tutupan lahan layer:', error);
-      setTutupanLahanLayer(null);
-    } finally {
-      setIsLoadingLayers(false);
+    console.log('🌳 Fetching tutupan_lahan layer with DAS filter:', incidentData.das);
+    console.log('📍 URL:', url);
+    
+    const response = await fetch(url);
+    
+    console.log('📡 Response status:', response.status);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Response not OK:', errorText);
+      throw new Error(`Failed to fetch tutupan_lahan layer: ${response.status}`);
     }
-  };
+    
+    const data = await response.json();
+    
+    console.log('📦 Received data:', {
+      type: data.type,
+      featureCount: data.features?.length || 0,
+      limitReached: data.limitReached
+    });
+    
+    if (data.features && data.features.length > 0) {
+      console.log('📋 Sample feature:', data.features[0]);
+      
+      // Generate colors untuk setiap unique pl2024_id
+      const uniquePl2024Ids = Array.from(new Set(
+        data.features.map(f => f.properties.pl2024_id)
+      )).sort((a, b) => a - b);
+      
+      console.log('🎨 Unique pl2024_ids from layer:', uniquePl2024Ids);
+      
+      const colors = {};
+      uniquePl2024Ids.forEach((pl2024_id, idx) => {
+        const color = getBarColor(idx);
+        colors[pl2024_id] = color;
+        console.log(`  pl2024_id ${pl2024_id} → ${color} (index ${idx})`);
+      });
+      
+      console.log('✅ Generated colors:', colors);
+      
+      // Set colors dulu
+      setTutupanLahanColors(colors);
+      
+      // Set layer
+      setTutupanLahanLayer(data);
+      console.log('✅ Tutupan lahan layer loaded:', data.features.length, 'features');
+      
+      // Fetch data untuk chart
+      fetchTutupanLahanData();
+      
+    } else {
+      console.log('⚠️ No features in response');
+      setTutupanLahanLayer(null);
+    }
+  } catch (error) {
+    console.error('❌ Error fetching tutupan lahan layer:', error);
+    setTutupanLahanLayer(null);
+  } finally {
+    setIsLoadingLayers(false);
+  }
+};
 
   // Helper function untuk menentukan warna dan label curah hujan
   const getRainfallColorAndLabel = (rainfall) => {
@@ -556,34 +574,40 @@ useEffect(() => {
   
   // Render tutupan lahan layer
   if (mapInstanceRef.current._tutupanLahanLayer) {
-    mapInstanceRef.current.removeLayer(mapInstanceRef.current._tutupanLahanLayer);
-  }
+  mapInstanceRef.current.removeLayer(mapInstanceRef.current._tutupanLahanLayer);
+}
+
+if (tutupanLahanVisible && tutupanLahanLayer && tutupanLahanLayer.features) {
+  console.log('🗺️ Rendering tutupan lahan layer on map');
+  console.log('   Features:', tutupanLahanLayer.features.length);
+  console.log('   Colors:', tutupanLahanColors);
   
-  if (tutupanLahanVisible && tutupanLahanLayer && tutupanLahanLayer.features) {
-    const layer = window.L.geoJSON(tutupanLahanLayer, {
-      // SKIP Point geometry - hanya render Polygon
-      filter: function(feature) {
-        return feature.geometry && (
-          feature.geometry.type === 'Polygon' || 
-          feature.geometry.type === 'MultiPolygon'
-        );
-      },
-      style: (feature) => {
-        const pl2024_id = feature.properties.pl2024_id;
-        const color = tutupanLahanColors[pl2024_id] || '#808080';
-        
-        return {
-          color: color,
-          weight: 1,
-          opacity: 0.8,
-          fillColor: color,
-          fillOpacity: 0.4
-        };
-      }
-    }).addTo(mapInstanceRef.current);
-    
-    mapInstanceRef.current._tutupanLahanLayer = layer;
-  }
+  const layer = window.L.geoJSON(tutupanLahanLayer, {
+    style: (feature) => {
+      const pl2024_id = feature.properties.pl2024_id;
+      const color = tutupanLahanColors[pl2024_id] || '#808080';
+      
+      return {
+        color: color,
+        fillColor: color,
+        weight: 1,
+        opacity: 0.8,
+        fillOpacity: 0.5
+      };
+    }
+  });
+  
+  layer.addTo(mapInstanceRef.current);
+  mapInstanceRef.current._tutupanLahanLayer = layer;
+  
+  console.log('✅ Tutupan lahan layer added to map');
+} else {
+  console.log('⚪ Tutupan lahan layer not rendered:', {
+    visible: tutupanLahanVisible,
+    hasLayer: !!tutupanLahanLayer,
+    hasFeatures: !!tutupanLahanLayer?.features
+  });
+}
   
   // Render kerawanan layers
   Object.keys(kerawananLayers).forEach(layerName => {
@@ -869,7 +893,12 @@ useEffect(() => {
                           <input
                             type="checkbox"
                             checked={tutupanLahanVisible}
-                            onChange={() => setTutupanLahanVisible(!tutupanLahanVisible)}
+                            onChange={(e) => {
+                              console.log('🔘 Toggle tutupan lahan:', e.target.checked);
+                              console.log('   Layer exists:', !!tutupanLahanLayer);
+                              console.log('   Feature count:', tutupanLahanLayer?.features?.length || 0);
+                              setTutupanLahanVisible(e.target.checked);
+                            }}
                             disabled={isLoadingLayers || !tutupanLahanLayer}
                             className="sr-only peer"
                           />
