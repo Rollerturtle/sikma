@@ -10790,6 +10790,344 @@ async function monitorTableInsertProgress(tableName, checkInterval = 1000) {
 }
 
 // Endpoint untuk upload dan create layer baru
+// app.post('/api/layers', shapefileUpload.array('files'), async (req, res) => {
+//   console.log('\n========================================');
+//   console.log('START POST /api/layers');
+//   console.log('========================================');
+  
+//   const client = await pool.connect();
+//   let uploadedFilePaths = [];
+//   let tableCreated = false;
+  
+//   try {
+//     const { tableName, section } = req.body;
+//     const files = req.files;
+    
+//     console.log('Table Name:', tableName);
+//     console.log('Section:', section);
+//     console.log('Files Count:', files?.length);
+    
+//     // Validasi input
+//     if (!tableName || !section) {
+//       return res.status(400).json({ error: 'Table name and section are required' });
+//     }
+    
+//     if (!files || files.length === 0) {
+//       return res.status(400).json({ error: 'No files uploaded' });
+//     }
+    
+//     uploadedFilePaths = files.map(f => f.path);
+    
+//     // Cari .shp dan .dbf
+//     const shpFile = files.find(f => f.originalname.toLowerCase().endsWith('.shp'));
+//     const dbfFile = files.find(f => f.originalname.toLowerCase().endsWith('.dbf'));
+    
+//     console.log('SHP File:', shpFile ? shpFile.originalname : 'NOT FOUND');
+//     console.log('DBF File:', dbfFile ? dbfFile.originalname : 'NOT FOUND');
+    
+//     if (!shpFile || !dbfFile) {
+//       return res.status(400).json({ error: 'Both .shp and .dbf files are required' });
+//     }
+    
+//     // Sanitize table name
+//     const sanitizedTableName = tableName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+//     console.log('Sanitized Table Name:', sanitizedTableName);
+    
+//     // BEGIN transaction
+//     await client.query('BEGIN');
+//     console.log('Transaction: BEGIN');
+    
+//     // Check if table exists
+//     const tableCheck = await client.query(`
+//       SELECT EXISTS (
+//         SELECT FROM information_schema.tables 
+//         WHERE table_schema = 'public' AND table_name = $1
+//       )
+//     `, [sanitizedTableName]);
+    
+//     if (tableCheck.rows[0].exists) {
+//       await client.query('ROLLBACK');
+//       return res.status(400).json({ error: 'Table already exists: ' + sanitizedTableName });
+//     }
+    
+//     // ============================================================
+//     // STEP 1: Analyze shapefile structure
+//     // ============================================================
+//     console.log('\n--- STEP 1: Analyzing Shapefile ---');
+//     const dbfSource = await shapefile.openDbf(dbfFile.path);
+//     const firstResult = await dbfSource.read();
+    
+//     if (firstResult.done || !firstResult.value) {
+//       await client.query('ROLLBACK');
+//       return res.status(400).json({ error: 'Shapefile is empty' });
+//     }
+    
+//     // Sample 50 rows untuk type detection
+//     const sampleData = [firstResult.value];
+//     let nextResult = await dbfSource.read();
+//     let count = 1;
+    
+//     while (!nextResult.done && count < 50) {
+//       sampleData.push(nextResult.value);
+//       nextResult = await dbfSource.read();
+//       count++;
+//     }
+    
+//     console.log('Sample Size:', sampleData.length);
+//     console.log('Columns:', Object.keys(firstResult.value).length);
+    
+//     // ============================================================
+//     // STEP 2: Create table
+//     // ============================================================
+//     console.log('\n--- STEP 2: Creating Table ---');
+
+// const columnDefs = [];
+
+// for (const [colName, value] of Object.entries(firstResult.value)) {
+//   const sanitizedColName = colName.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+//   const sampleValues = sampleData.map(row => row[colName]);
+  
+//   // Detect column type
+//   let colType = 'TEXT'; // Default
+//   const nonNullValues = sampleValues.filter(v => v != null && v !== '');
+  
+//   if (nonNullValues.length > 0) {
+//     const allNumbers = nonNullValues.every(v => {
+//       const num = Number(v);
+//       return !isNaN(num) && isFinite(num);
+//     });
+    
+//     if (allNumbers) {
+//       const allIntegers = nonNullValues.every(v => Number.isInteger(Number(v)));
+      
+//       if (allIntegers) {
+//         // GUNAKAN BIGINT untuk semua integer (lebih aman)
+//         colType = 'BIGINT';
+//       } else {
+//         colType = 'DOUBLE PRECISION';
+//       }
+//     } else {
+//       const maxLen = Math.max(...nonNullValues.map(v => String(v).length));
+//       colType = maxLen > 255 ? 'TEXT' : 'VARCHAR(255)';
+//     }
+//   }
+  
+//   columnDefs.push(`${sanitizedColName} ${colType}`);
+// }
+
+// columnDefs.push('geom geometry(Geometry, 4326)');
+
+// const createTableSQL = `
+//   CREATE TABLE ${sanitizedTableName} (
+//     gid SERIAL PRIMARY KEY,
+//     ${columnDefs.join(',\n        ')}
+//   )
+// `;
+
+// console.log('Creating table...');
+// await client.query(createTableSQL);
+// tableCreated = true;
+// console.log('✓ Table created');
+    
+//     // Create spatial index
+//     await client.query(`
+//       CREATE INDEX ${sanitizedTableName}_geom_idx 
+//       ON ${sanitizedTableName} USING GIST (geom)
+//     `);
+//     console.log('✓ Spatial index created');
+    
+//     // ============================================================
+//     // STEP 3: Insert features ONE BY ONE
+//     // ============================================================
+//     console.log('\n--- STEP 3: Inserting Features ---');
+// console.log('Method: ONE-BY-ONE with SAVEPOINT per insert');
+
+// const COMMIT_INTERVAL = 50000;
+// let inserted = 0;
+// let skipped = 0;
+// const errors = [];
+
+// const source = await shapefile.open(shpFile.path, dbfFile.path);
+// let result = await source.read();
+
+// while (!result.done) {
+//   const feature = result.value;
+  
+//   if (feature && feature.geometry && feature.properties && feature.geometry.type) {
+//     try {
+//       // SAVEPOINT untuk setiap insert
+//       await client.query('SAVEPOINT insert_feature');
+      
+//       const cols = [];
+//       const vals = [];
+//       const placeholders = [];
+//       let idx = 1;
+      
+//       // Properties
+//       for (const [colName, value] of Object.entries(feature.properties)) {
+//         const sanitizedCol = colName.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+//         cols.push(sanitizedCol);
+        
+//         // Convert value
+//         let convertedValue = value;
+//         if (value == null || value === '') {
+//           convertedValue = null;
+//         } else if (typeof value === 'string' && !isNaN(Number(value)) && value.trim() !== '') {
+//           convertedValue = Number(value);
+//         }
+        
+//         vals.push(convertedValue);
+//         placeholders.push(`$${idx++}`);
+//       }
+      
+//       // Geometry
+//       cols.push('geom');
+//       vals.push(JSON.stringify(feature.geometry));
+//       placeholders.push(`ST_SetSRID(ST_GeomFromGeoJSON($${idx}::json), 4326)`);
+      
+//       const insertSQL = `
+//         INSERT INTO ${sanitizedTableName} (${cols.join(', ')})
+//         VALUES (${placeholders.join(', ')})
+//       `;
+      
+//       await client.query(insertSQL, vals);
+//       await client.query('RELEASE SAVEPOINT insert_feature');
+      
+//       inserted++;
+      
+//       // Send progress setiap 1000 features
+//       if (inserted % 1000 === 0) {
+//         console.log(`  Progress: ${inserted} features inserted`);
+//         // Kirim progress ke frontend (estimasi, karena kita tidak tahu total features)
+//         // Gunakan formula logaritmik agar progress terlihat smooth
+//         const estimatedProgress = Math.min(Math.round((inserted / (inserted + 10000)) * 95), 95);
+//         sendProgress(sanitizedTableName, estimatedProgress, `${inserted.toLocaleString()} features inserted`);
+//       }
+      
+//       // COMMIT every 50000
+//       if (inserted % COMMIT_INTERVAL === 0) {
+//         await client.query('COMMIT');
+//         await client.query('BEGIN');
+//         console.log(`  💾 COMMIT at ${inserted} features`);
+//         sendProgress(sanitizedTableName, Math.min(Math.round((inserted / (inserted + 10000)) * 95), 95), `${inserted.toLocaleString()} features - committing...`);
+        
+//         if (global.gc) {
+//           global.gc();
+//         }
+//       }
+      
+//     } catch (err) {
+//       // ROLLBACK to savepoint jika error
+//       await client.query('ROLLBACK TO SAVEPOINT insert_feature');
+      
+//       if (errors.length < 5) {
+//         errors.push({ 
+//           feature: inserted + skipped + 1, 
+//           error: err.message,
+//           sampleData: Object.entries(feature.properties).slice(0, 3).map(([k,v]) => `${k}=${v}`)
+//         });
+//       }
+//       skipped++;
+      
+//       // Jangan stop jika sudah ada yang berhasil
+//       if (inserted === 0 && skipped > 100) {
+//         throw new Error('Too many errors at start: ' + errors[0].error);
+//       }
+//     }
+//   } else {
+//     skipped++;
+//   }
+  
+//   result = await source.read();
+  
+//   // Yield event loop
+//   if ((inserted + skipped) % 1000 === 0) {
+//     await new Promise(resolve => setImmediate(resolve));
+//   }
+// }
+
+// console.log('\n✓ Insertion Complete');
+// console.log('  Inserted:', inserted);
+// console.log('  Skipped:', skipped);
+
+// // Kirim progress final 100%
+// sendProgress(sanitizedTableName, 100, `Completed: ${inserted.toLocaleString()} features inserted`, true);
+
+// if (errors.length > 0) {
+//   console.log('  Sample Errors:');
+//   errors.forEach(e => {
+//     console.log(`    Feature ${e.feature}: ${e.error}`);
+//     if (e.sampleData) console.log(`      Sample: ${e.sampleData.join(', ')}`);
+//   });
+// }
+
+// if (inserted === 0) {
+//   throw new Error('No features inserted');
+// }
+    
+//     // ============================================================
+//     // STEP 4: Save metadata
+//     // ============================================================
+//     console.log('\n--- STEP 4: Saving Metadata ---');
+//     const metaResult = await client.query(`
+//       INSERT INTO layer_metadata (table_name, section, original_files)
+//       VALUES ($1, $2, $3)
+//       RETURNING id, table_name, section, created_at
+//     `, [sanitizedTableName, section, files.map(f => f.originalname)]);
+    
+//     console.log('✓ Metadata saved');
+    
+//     // Final COMMIT
+//     await client.query('COMMIT');
+//     console.log('✓ Final COMMIT');
+    
+//     // Cleanup
+//     uploadedFilePaths.forEach(fp => {
+//       try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch {}
+//     });
+    
+//     if (global.gc) global.gc();
+    
+//     console.log('\n========================================');
+//     console.log('SUCCESS');
+//     console.log('========================================\n');
+    
+//     res.json({
+//       success: true,
+//       message: `Layer created: ${inserted} features`,
+//       layer: {
+//         id: metaResult.rows[0].id.toString(),
+//         name: metaResult.rows[0].table_name,
+//         section: metaResult.rows[0].section,
+//         createdAt: metaResult.rows[0].created_at
+//       },
+//       featureCount: inserted,
+//       skippedCount: skipped
+//     });
+    
+//   } catch (error) {
+//     await client.query('ROLLBACK');
+//     console.error('\n========================================');
+//     console.error('ERROR:', error.message);
+//     console.error('========================================\n');
+    
+//     if (tableCreated && req.body.tableName) {
+//       try {
+//         const tbl = req.body.tableName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+//         await client.query(`DROP TABLE IF EXISTS ${tbl} CASCADE`);
+//       } catch {}
+//     }
+    
+//     uploadedFilePaths.forEach(fp => {
+//       try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch {}
+//     });
+    
+//     res.status(500).json({ error: error.message });
+//   } finally {
+//     client.release();
+//   }
+// });
+
 app.post('/api/layers', shapefileUpload.array('files'), async (req, res) => {
   console.log('\n========================================');
   console.log('START POST /api/layers');
@@ -10881,58 +11219,58 @@ app.post('/api/layers', shapefileUpload.array('files'), async (req, res) => {
     // ============================================================
     console.log('\n--- STEP 2: Creating Table ---');
 
-const columnDefs = [];
+    const columnDefs = [];
 
-for (const [colName, value] of Object.entries(firstResult.value)) {
-  const sanitizedColName = colName.toLowerCase().replace(/[^a-z0-9_]/g, '_');
-  const sampleValues = sampleData.map(row => row[colName]);
-  
-  // Detect column type
-  let colType = 'TEXT'; // Default
-  const nonNullValues = sampleValues.filter(v => v != null && v !== '');
-  
-  if (nonNullValues.length > 0) {
-    const allNumbers = nonNullValues.every(v => {
-      const num = Number(v);
-      return !isNaN(num) && isFinite(num);
-    });
-    
-    if (allNumbers) {
-      const allIntegers = nonNullValues.every(v => Number.isInteger(Number(v)));
+    for (const [colName, value] of Object.entries(firstResult.value)) {
+      const sanitizedColName = colName.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+      const sampleValues = sampleData.map(row => row[colName]);
       
-      if (allIntegers) {
-        // GUNAKAN BIGINT untuk semua integer (lebih aman)
-        colType = 'BIGINT';
-      } else {
-        colType = 'DOUBLE PRECISION';
+      // Detect column type
+      let colType = 'TEXT'; // Default
+      const nonNullValues = sampleValues.filter(v => v != null && v !== '');
+      
+      if (nonNullValues.length > 0) {
+        const allNumbers = nonNullValues.every(v => {
+          const num = Number(v);
+          return !isNaN(num) && isFinite(num);
+        });
+        
+        if (allNumbers) {
+          const allIntegers = nonNullValues.every(v => Number.isInteger(Number(v)));
+          
+          if (allIntegers) {
+            // GUNAKAN BIGINT untuk semua integer (lebih aman)
+            colType = 'BIGINT';
+          } else {
+            colType = 'DOUBLE PRECISION';
+          }
+        } else {
+          const maxLen = Math.max(...nonNullValues.map(v => String(v).length));
+          colType = maxLen > 255 ? 'TEXT' : 'VARCHAR(255)';
+        }
       }
-    } else {
-      const maxLen = Math.max(...nonNullValues.map(v => String(v).length));
-      colType = maxLen > 255 ? 'TEXT' : 'VARCHAR(255)';
+      
+      columnDefs.push(`${sanitizedColName} ${colType}`);
     }
-  }
-  
-  columnDefs.push(`${sanitizedColName} ${colType}`);
-}
 
-columnDefs.push('geom geometry(Geometry, 4326)');
+    columnDefs.push('geom_valid geometry(Geometry, 4326)');
 
-const createTableSQL = `
-  CREATE TABLE ${sanitizedTableName} (
-    gid SERIAL PRIMARY KEY,
-    ${columnDefs.join(',\n        ')}
-  )
-`;
+    const createTableSQL = `
+      CREATE TABLE ${sanitizedTableName} (
+        gid SERIAL PRIMARY KEY,
+        ${columnDefs.join(',\n        ')}
+      )
+    `;
 
-console.log('Creating table...');
-await client.query(createTableSQL);
-tableCreated = true;
-console.log('✓ Table created');
+    console.log('Creating table...');
+    await client.query(createTableSQL);
+    tableCreated = true;
+    console.log('✓ Table created');
     
     // Create spatial index
     await client.query(`
-      CREATE INDEX ${sanitizedTableName}_geom_idx 
-      ON ${sanitizedTableName} USING GIST (geom)
+      CREATE INDEX ${sanitizedTableName}_geom_valid_idx 
+      ON ${sanitizedTableName} USING GIST (geom_valid)
     `);
     console.log('✓ Spatial index created');
     
@@ -10940,130 +11278,130 @@ console.log('✓ Table created');
     // STEP 3: Insert features ONE BY ONE
     // ============================================================
     console.log('\n--- STEP 3: Inserting Features ---');
-console.log('Method: ONE-BY-ONE with SAVEPOINT per insert');
+    console.log('Method: ONE-BY-ONE with SAVEPOINT per insert');
 
-const COMMIT_INTERVAL = 50000;
-let inserted = 0;
-let skipped = 0;
-const errors = [];
+    const COMMIT_INTERVAL = 50000;
+    let inserted = 0;
+    let skipped = 0;
+    const errors = [];
 
-const source = await shapefile.open(shpFile.path, dbfFile.path);
-let result = await source.read();
+    const source = await shapefile.open(shpFile.path, dbfFile.path);
+    let result = await source.read();
 
-while (!result.done) {
-  const feature = result.value;
-  
-  if (feature && feature.geometry && feature.properties && feature.geometry.type) {
-    try {
-      // SAVEPOINT untuk setiap insert
-      await client.query('SAVEPOINT insert_feature');
+    while (!result.done) {
+      const feature = result.value;
       
-      const cols = [];
-      const vals = [];
-      const placeholders = [];
-      let idx = 1;
-      
-      // Properties
-      for (const [colName, value] of Object.entries(feature.properties)) {
-        const sanitizedCol = colName.toLowerCase().replace(/[^a-z0-9_]/g, '_');
-        cols.push(sanitizedCol);
-        
-        // Convert value
-        let convertedValue = value;
-        if (value == null || value === '') {
-          convertedValue = null;
-        } else if (typeof value === 'string' && !isNaN(Number(value)) && value.trim() !== '') {
-          convertedValue = Number(value);
+      if (feature && feature.geometry && feature.properties && feature.geometry.type) {
+        try {
+          // SAVEPOINT untuk setiap insert
+          await client.query('SAVEPOINT insert_feature');
+          
+          const cols = [];
+          const vals = [];
+          const placeholders = [];
+          let idx = 1;
+          
+          // Properties
+          for (const [colName, value] of Object.entries(feature.properties)) {
+            const sanitizedCol = colName.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+            cols.push(sanitizedCol);
+            
+            // Convert value
+            let convertedValue = value;
+            if (value == null || value === '') {
+              convertedValue = null;
+            } else if (typeof value === 'string' && !isNaN(Number(value)) && value.trim() !== '') {
+              convertedValue = Number(value);
+            }
+            
+            vals.push(convertedValue);
+            placeholders.push(`$${idx++}`);
+          }
+          
+          // Geometry dengan ST_MakeValid dan ST_Transform
+          cols.push('geom_valid');
+          vals.push(JSON.stringify(feature.geometry));
+          placeholders.push(`ST_MakeValid(ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON($${idx}::json), 4326), 4326))`);
+          
+          const insertSQL = `
+            INSERT INTO ${sanitizedTableName} (${cols.join(', ')})
+            VALUES (${placeholders.join(', ')})
+          `;
+          
+          await client.query(insertSQL, vals);
+          await client.query('RELEASE SAVEPOINT insert_feature');
+          
+          inserted++;
+          
+          // Send progress setiap 1000 features
+          if (inserted % 1000 === 0) {
+            console.log(`  Progress: ${inserted} features inserted`);
+            // Kirim progress ke frontend (estimasi, karena kita tidak tahu total features)
+            // Gunakan formula logaritmik agar progress terlihat smooth
+            const estimatedProgress = Math.min(Math.round((inserted / (inserted + 10000)) * 95), 95);
+            sendProgress(sanitizedTableName, estimatedProgress, `${inserted.toLocaleString()} features inserted`);
+          }
+          
+          // COMMIT every 50000
+          if (inserted % COMMIT_INTERVAL === 0) {
+            await client.query('COMMIT');
+            await client.query('BEGIN');
+            console.log(`  💾 COMMIT at ${inserted} features`);
+            sendProgress(sanitizedTableName, Math.min(Math.round((inserted / (inserted + 10000)) * 95), 95), `${inserted.toLocaleString()} features - committing...`);
+            
+            if (global.gc) {
+              global.gc();
+            }
+          }
+          
+        } catch (err) {
+          // ROLLBACK to savepoint jika error
+          await client.query('ROLLBACK TO SAVEPOINT insert_feature');
+          
+          if (errors.length < 5) {
+            errors.push({ 
+              feature: inserted + skipped + 1, 
+              error: err.message,
+              sampleData: Object.entries(feature.properties).slice(0, 3).map(([k,v]) => `${k}=${v}`)
+            });
+          }
+          skipped++;
+          
+          // Jangan stop jika sudah ada yang berhasil
+          if (inserted === 0 && skipped > 100) {
+            throw new Error('Too many errors at start: ' + errors[0].error);
+          }
         }
-        
-        vals.push(convertedValue);
-        placeholders.push(`$${idx++}`);
+      } else {
+        skipped++;
       }
       
-      // Geometry
-      cols.push('geom');
-      vals.push(JSON.stringify(feature.geometry));
-      placeholders.push(`ST_SetSRID(ST_GeomFromGeoJSON($${idx}::json), 4326)`);
+      result = await source.read();
       
-      const insertSQL = `
-        INSERT INTO ${sanitizedTableName} (${cols.join(', ')})
-        VALUES (${placeholders.join(', ')})
-      `;
-      
-      await client.query(insertSQL, vals);
-      await client.query('RELEASE SAVEPOINT insert_feature');
-      
-      inserted++;
-      
-      // Send progress setiap 1000 features
-      if (inserted % 1000 === 0) {
-        console.log(`  Progress: ${inserted} features inserted`);
-        // Kirim progress ke frontend (estimasi, karena kita tidak tahu total features)
-        // Gunakan formula logaritmik agar progress terlihat smooth
-        const estimatedProgress = Math.min(Math.round((inserted / (inserted + 10000)) * 95), 95);
-        sendProgress(sanitizedTableName, estimatedProgress, `${inserted.toLocaleString()} features inserted`);
-      }
-      
-      // COMMIT every 50000
-      if (inserted % COMMIT_INTERVAL === 0) {
-        await client.query('COMMIT');
-        await client.query('BEGIN');
-        console.log(`  💾 COMMIT at ${inserted} features`);
-        sendProgress(sanitizedTableName, Math.min(Math.round((inserted / (inserted + 10000)) * 95), 95), `${inserted.toLocaleString()} features - committing...`);
-        
-        if (global.gc) {
-          global.gc();
-        }
-      }
-      
-    } catch (err) {
-      // ROLLBACK to savepoint jika error
-      await client.query('ROLLBACK TO SAVEPOINT insert_feature');
-      
-      if (errors.length < 5) {
-        errors.push({ 
-          feature: inserted + skipped + 1, 
-          error: err.message,
-          sampleData: Object.entries(feature.properties).slice(0, 3).map(([k,v]) => `${k}=${v}`)
-        });
-      }
-      skipped++;
-      
-      // Jangan stop jika sudah ada yang berhasil
-      if (inserted === 0 && skipped > 100) {
-        throw new Error('Too many errors at start: ' + errors[0].error);
+      // Yield event loop
+      if ((inserted + skipped) % 1000 === 0) {
+        await new Promise(resolve => setImmediate(resolve));
       }
     }
-  } else {
-    skipped++;
-  }
-  
-  result = await source.read();
-  
-  // Yield event loop
-  if ((inserted + skipped) % 1000 === 0) {
-    await new Promise(resolve => setImmediate(resolve));
-  }
-}
 
-console.log('\n✓ Insertion Complete');
-console.log('  Inserted:', inserted);
-console.log('  Skipped:', skipped);
+    console.log('\n✓ Insertion Complete');
+    console.log('  Inserted:', inserted);
+    console.log('  Skipped:', skipped);
 
-// Kirim progress final 100%
-sendProgress(sanitizedTableName, 100, `Completed: ${inserted.toLocaleString()} features inserted`, true);
+    // Kirim progress final 100%
+    sendProgress(sanitizedTableName, 100, `Completed: ${inserted.toLocaleString()} features inserted`, true);
 
-if (errors.length > 0) {
-  console.log('  Sample Errors:');
-  errors.forEach(e => {
-    console.log(`    Feature ${e.feature}: ${e.error}`);
-    if (e.sampleData) console.log(`      Sample: ${e.sampleData.join(', ')}`);
-  });
-}
+    if (errors.length > 0) {
+      console.log('  Sample Errors:');
+      errors.forEach(e => {
+        console.log(`    Feature ${e.feature}: ${e.error}`);
+        if (e.sampleData) console.log(`      Sample: ${e.sampleData.join(', ')}`);
+      });
+    }
 
-if (inserted === 0) {
-  throw new Error('No features inserted');
-}
+    if (inserted === 0) {
+      throw new Error('No features inserted');
+    }
     
     // ============================================================
     // STEP 4: Save metadata

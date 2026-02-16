@@ -904,15 +904,47 @@ const loadLayerInBounds = async (tableName: string, customBounds?: [[number, num
           fillOpacity: 0.5
         };
       };
+    // } else {
+    //   const tableColor = getColorForTable(tableName);
+    //   styleFunction = function(feature: any) {
+    //     return {
+    //       color: tableColor,
+    //       weight: zoom > 10 ? 2 : 1,
+    //       opacity: 0.8,
+    //       fillOpacity: zoom > 10 ? 0.4 : 0.3
+    //     };
     } else {
-      const tableColor = getColorForTable(tableName);
-      styleFunction = function(feature: any) {
-        return {
-          color: tableColor,
-          weight: zoom > 10 ? 2 : 1,
-          opacity: 0.8,
-          fillOpacity: zoom > 10 ? 0.4 : 0.3
-        };
+  // Untuk layer umum, beri warna berbeda per feature
+  styleFunction = function(feature: any) {
+    // Ambil warna berdasarkan property tertentu, misal: gid, id, atau nama
+    let featureIdentifier = feature.properties.gid || 
+                           feature.properties.id || 
+                           feature.properties.nama || 
+                           feature.properties.name ||
+                           JSON.stringify(feature.properties); // fallback: gunakan semua properties
+    
+    // Hash untuk mendapatkan warna unik per feature
+    const colors = [
+      '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', 
+      '#F7DC6F', '#BB8FCE', '#85C1E2', '#F8B739', '#52BE80', 
+      '#EC7063', '#5DADE2', '#F1948A', '#73C6B6', '#F39C12',
+      '#AED6F1', '#F8C471', '#82E0AA', '#E59866', '#D7BDE2'
+    ];
+    
+    let hash = 0;
+    const str = String(featureIdentifier);
+    for (let i = 0; i < str.length; i++) {
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const colorIndex = Math.abs(hash) % colors.length;
+    const featureColor = colors[colorIndex];
+    
+    return {
+      color: featureColor,
+      weight: zoom > 10 ? 2 : 1,
+      opacity: 0.8,
+      fillOpacity: zoom > 10 ? 0.4 : 0.3
+    };
       };
     }
     
