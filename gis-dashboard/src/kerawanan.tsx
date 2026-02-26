@@ -140,6 +140,20 @@ const [availableLayers, setAvailableLayers] = useState<{
     color?: string;
   }>>([]);
 
+  const [bahayaKekeringanData, setBahayaKekeringanData] = useState<Array<{kelas: string; luas: number; color?: string}>>([]);
+  const [bahayaAbrasiData, setBahayaAbrasiData] = useState<Array<{kelas: string; luas: number; color?: string}>>([]);
+  const [bahayaBanjirData, setBahayaBanjirData] = useState<Array<{kelas: string; luas: number; color?: string}>>([]);
+  const [bahayaBanjirBandangData, setBahayaBanjirBandangData] = useState<Array<{kelas: string; luas: number; color?: string}>>([]);
+  const [dtaDanauData, setDtaDanauData] = useState<Array<{tipe_danau: string; luas: number; color?: string}>>([]);
+  const [rehabilitasiDasData, setRehabilitasiDasData] = useState<Array<{bpdas: string; luas: number; color?: string}>>([]);
+  const [rehabilitasiHutanData, setRehabilitasiHutanData] = useState<Array<{jenis_tana: string; luas: number; color?: string}>>([]);
+  const [restorasiGambutData, setRestorasiGambutData] = useState<Array<{jenis: string; bahan: string}>>([]);
+  const [penerapanTeknikKtaData, setPenerapanTeknikKtaData] = useState<Array<{das: string; subdas: string}>>([]);
+  const [kebakaran2021Data, setKebakaran2021Data] = useState<Array<{periode: string; color?: string}>>([]);
+  const [kebakaran2022Data, setKebakaran2022Data] = useState<Array<{periode: string; luas: number; color?: string}>>([]);
+  const [kebakaran2023Data, setKebakaran2023Data] = useState<Array<{periode: string; color?: string}>>([]);
+  const [kebakaran2024Data, setKebakaran2024Data] = useState<Array<{periode: string; luas: number; color?: string}>>([]);
+
   const colorMappingRef = useRef<{
     tutupanLahan: Map<string, string>;
     penutupanLahan2024: Map<string, string>;
@@ -151,6 +165,17 @@ const [availableLayers, setAvailableLayers] = useState<{
     rawanLongsor: Map<string, string>;
     rawanLimpasan: Map<string, string>;
     rawanKarhutla: Map<string, string>;
+    bahayaKekeringan: Map<string, string>;
+    bahayaAbrasi: Map<string, string>;
+    bahayaBanjir: Map<string, string>;
+    bahayaBanjirBandang: Map<string, string>;
+    dtaDanau: Map<string, string>;
+    rehabilitasiDas: Map<string, string>;
+    rehabilitasiHutan: Map<string, string>;
+    kebakaran2021: Map<string, string>;
+    kebakaran2022: Map<string, string>;
+    kebakaran2023: Map<string, string>;
+    kebakaran2024: Map<string, string>;
   }>({
     tutupanLahan: new Map(),
     penutupanLahan2024: new Map(),
@@ -161,7 +186,18 @@ const [availableLayers, setAvailableLayers] = useState<{
     rawanErosi: new Map(),
     rawanLongsor: new Map(),
     rawanLimpasan: new Map(),
-    rawanKarhutla: new Map()
+    rawanKarhutla: new Map(),
+    bahayaKekeringan: new Map(),
+    bahayaAbrasi: new Map(),
+    bahayaBanjir: new Map(),
+    bahayaBanjirBandang: new Map(),
+    dtaDanau: new Map(),
+    rehabilitasiDas: new Map(),
+    rehabilitasiHutan: new Map(),
+    kebakaran2021: new Map(),
+    kebakaran2022: new Map(),
+    kebakaran2023: new Map(),
+    kebakaran2024: new Map(),
   });
 
   const tutupanLahanColors = {
@@ -329,6 +365,38 @@ const jenisTanahColors = [
     'Tinggi': '#FF0000',
     'Sedang': '#FFA500',
     'Rendah': '#FFFF00'
+  };
+
+  const bahayaKelasColors: Record<string, string> = {
+    'Tinggi': '#FF0000',
+    'Sedang': '#FFA500',
+    'Rendah': '#FFFF00'
+  };
+
+  const dtaDanauColors: Record<string, string> = {
+    'TEKTONIK': '#1E90FF',
+    'BUATAN': '#4682B4',
+    'VULKANIK': '#FF4500',
+    'TEKTO-VULKANIK': '#FF6347',
+    'PAPARAN BANJIR': '#00BFFF',
+    'SUNGAI TERBENDUNG': '#87CEEB'
+  };
+
+  const randomColorPalette = [
+    '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8',
+    '#F7DC6F', '#BB8FCE', '#85C1E2', '#F8B739', '#52BE80',
+    '#EC7063', '#5DADE2', '#F1948A', '#73C6B6', '#F39C12',
+    '#AED6F1', '#F8C471', '#82E0AA', '#E59866', '#D7BDE2',
+    '#FF9FF3', '#54A0FF', '#5F27CD', '#00D2D3', '#01ABC2',
+    '#FF6348', '#2ED573', '#1E90FF', '#FFA502', '#ECCC68'
+  ];
+
+  const getRandomColor = (key: string, colorMapRef: Map<string, string>): string => {
+    if (colorMapRef.has(key)) return colorMapRef.get(key)!;
+    const idx = colorMapRef.size % randomColorPalette.length;
+    const color = randomColorPalette[idx];
+    colorMapRef.set(key, color);
+    return color;
   };
 
   const [kejadianPhotos, setKejadianPhotos] = useState<Array<{
@@ -771,6 +839,213 @@ const loadLayerInBounds = async (tableName: string, customBounds?: [[number, num
         colorMap.set(item.tingkat, item.color!);
         colorMappingRef.current.rawanKarhutla.set(item.tingkat, item.color!);
       });
+    } else if (tableName === 'bahaya_kekeringan') {
+      const kelasMap = new Map<string, number>();
+      geojsonData.features.forEach((feature: any) => {
+        const kelas = feature.properties.kelas || '';
+        const luas = parseFloat(feature.properties.shape_area) || 0;
+        if (kelas) kelasMap.set(kelas, (kelasMap.get(kelas) || 0) + luas);
+      });
+      const order = ['Tinggi', 'Sedang', 'Rendah'];
+      const arr = Array.from(kelasMap.entries())
+        .map(([kelas, luas]) => ({ kelas, luas, color: bahayaKelasColors[kelas] || '#808080' }))
+        .sort((a, b) => (order.indexOf(a.kelas) === -1 ? 999 : order.indexOf(a.kelas)) - (order.indexOf(b.kelas) === -1 ? 999 : order.indexOf(b.kelas)));
+      setBahayaKekeringanData(arr);
+      arr.forEach(item => {
+        colorMap.set(item.kelas, item.color!);
+        colorMappingRef.current.bahayaKekeringan.set(item.kelas, item.color!);
+      });
+
+    } else if (tableName === 'bahaya_abrasi_dan_gelombang_ekstrim') {
+      const kelasMap = new Map<string, number>();
+      geojsonData.features.forEach((feature: any) => {
+        const kelas = feature.properties.kelas || '';
+        const luas = parseFloat(feature.properties.shape_area) || 0;
+        if (kelas) kelasMap.set(kelas, (kelasMap.get(kelas) || 0) + luas);
+      });
+      const order = ['Tinggi', 'Rendah'];
+      const arr = Array.from(kelasMap.entries())
+        .map(([kelas, luas]) => ({ kelas, luas, color: bahayaKelasColors[kelas] || '#808080' }))
+        .sort((a, b) => (order.indexOf(a.kelas) === -1 ? 999 : order.indexOf(a.kelas)) - (order.indexOf(b.kelas) === -1 ? 999 : order.indexOf(b.kelas)));
+      setBahayaAbrasiData(arr);
+      arr.forEach(item => {
+        colorMap.set(item.kelas, item.color!);
+        colorMappingRef.current.bahayaAbrasi.set(item.kelas, item.color!);
+      });
+
+    } else if (tableName === 'bahaya_banjir') {
+      const kelasMap = new Map<string, number>();
+      geojsonData.features.forEach((feature: any) => {
+        const kelas = feature.properties.kelas || '';
+        const luas = parseFloat(feature.properties.shape_area) || 0;
+        if (kelas) kelasMap.set(kelas, (kelasMap.get(kelas) || 0) + luas);
+      });
+      const order = ['Tinggi', 'Sedang', 'Rendah'];
+      const arr = Array.from(kelasMap.entries())
+        .map(([kelas, luas]) => ({ kelas, luas, color: bahayaKelasColors[kelas] || '#808080' }))
+        .sort((a, b) => (order.indexOf(a.kelas) === -1 ? 999 : order.indexOf(a.kelas)) - (order.indexOf(b.kelas) === -1 ? 999 : order.indexOf(b.kelas)));
+      setBahayaBanjirData(arr);
+      arr.forEach(item => {
+        colorMap.set(item.kelas, item.color!);
+        colorMappingRef.current.bahayaBanjir.set(item.kelas, item.color!);
+      });
+
+    } else if (tableName === 'bahaya_banjir_bandang') {
+      const kelasMap = new Map<string, number>();
+      geojsonData.features.forEach((feature: any) => {
+        const kelas = feature.properties.kelas || '';
+        const luas = parseFloat(feature.properties.shape_area) || 0;
+        if (kelas) kelasMap.set(kelas, (kelasMap.get(kelas) || 0) + luas);
+      });
+      const order = ['Tinggi', 'Sedang', 'Rendah'];
+      const arr = Array.from(kelasMap.entries())
+        .map(([kelas, luas]) => ({ kelas, luas, color: bahayaKelasColors[kelas] || '#808080' }))
+        .sort((a, b) => (order.indexOf(a.kelas) === -1 ? 999 : order.indexOf(a.kelas)) - (order.indexOf(b.kelas) === -1 ? 999 : order.indexOf(b.kelas)));
+      setBahayaBanjirBandangData(arr);
+      arr.forEach(item => {
+        colorMap.set(item.kelas, item.color!);
+        colorMappingRef.current.bahayaBanjirBandang.set(item.kelas, item.color!);
+      });
+
+    } else if (tableName === 'dta_danau') {
+      const tipeMap = new Map<string, number>();
+      geojsonData.features.forEach((feature: any) => {
+        const tipe = feature.properties.tipe_danau || '';
+        const luas = parseFloat(feature.properties.luas_ha) || 0;
+        if (tipe) tipeMap.set(tipe, (tipeMap.get(tipe) || 0) + luas);
+      });
+      const arr = Array.from(tipeMap.entries()).map(([tipe_danau, luas]) => ({
+        tipe_danau, luas, color: dtaDanauColors[tipe_danau] || '#808080'
+      }));
+      setDtaDanauData(arr);
+      arr.forEach(item => {
+        colorMap.set(item.tipe_danau, item.color!);
+        colorMappingRef.current.dtaDanau.set(item.tipe_danau, item.color!);
+      });
+
+    } else if (tableName === 'rehabilitasi_das') {
+      const bpdasMap = new Map<string, number>();
+      const bpdasColorMap = new Map<string, string>();
+      geojsonData.features.forEach((feature: any) => {
+        const bpdas = feature.properties.bpdas || '';
+        const luas = parseFloat(feature.properties.luas_rdas) || 0;
+        if (bpdas) bpdasMap.set(bpdas, (bpdasMap.get(bpdas) || 0) + luas);
+      });
+      const arr = Array.from(bpdasMap.entries()).map(([bpdas, luas]) => {
+        const color = getRandomColor(bpdas, bpdasColorMap);
+        return { bpdas, luas, color };
+      });
+      setRehabilitasiDasData(arr);
+      arr.forEach(item => {
+        colorMap.set(item.bpdas, item.color!);
+        colorMappingRef.current.rehabilitasiDas.set(item.bpdas, item.color!);
+      });
+
+    } else if (tableName === 'rehabilitasi_hutan') {
+      const jenisTanaMap = new Map<string, number>();
+      const jenisTanaColorMap = new Map<string, string>();
+      geojsonData.features.forEach((feature: any) => {
+        const jenis_tana = String(feature.properties.jenis_tana || '');
+        const luas = parseFloat(feature.properties.luas_ha) || 0;
+        if (jenis_tana) jenisTanaMap.set(jenis_tana, (jenisTanaMap.get(jenis_tana) || 0) + luas);
+      });
+      const arr = Array.from(jenisTanaMap.entries()).map(([jenis_tana, luas]) => {
+        const color = getRandomColor(jenis_tana, jenisTanaColorMap);
+        return { jenis_tana, luas, color };
+      });
+      setRehabilitasiHutanData(arr);
+      arr.forEach(item => {
+        colorMap.set(item.jenis_tana, item.color!);
+        colorMappingRef.current.rehabilitasiHutan.set(item.jenis_tana, item.color!);
+      });
+
+    } else if (tableName === 'restorasi_gambut') {
+      const uniqueMap = new Map<string, {jenis: string; bahan: string}>();
+      geojsonData.features.forEach((feature: any) => {
+        const jenis = String(feature.properties.jenis || '');
+        const bahan = String(feature.properties.bahan || '');
+        const key = `${jenis}||${bahan}`;
+        if (!uniqueMap.has(key)) uniqueMap.set(key, { jenis, bahan });
+      });
+      setRestorasiGambutData(Array.from(uniqueMap.values()));
+
+    } else if (tableName === 'penerapan_teknik_kta') {
+      const uniqueMap = new Map<string, {das: string; subdas: string}>();
+      geojsonData.features.forEach((feature: any) => {
+        const das = String(feature.properties.das || '');
+        const subdas = String(feature.properties.subdas || '');
+        const key = `${das}||${subdas}`;
+        if (!uniqueMap.has(key)) uniqueMap.set(key, { das, subdas });
+      });
+      setPenerapanTeknikKtaData(Array.from(uniqueMap.values()));
+
+    } else if (tableName === 'layer_kebakaran_hutan_2021') {
+      const periodeColorMap = new Map<string, string>();
+      const uniquePeriode = new Set<string>();
+      geojsonData.features.forEach((feature: any) => {
+        const periode = String(feature.properties.periode || '');
+        if (periode) uniquePeriode.add(periode);
+      });
+      const arr = Array.from(uniquePeriode).map(periode => ({
+        periode,
+        color: getRandomColor(periode, periodeColorMap)
+      }));
+      setKebakaran2021Data(arr);
+      arr.forEach(item => {
+        colorMap.set(item.periode, item.color!);
+        colorMappingRef.current.kebakaran2021.set(item.periode, item.color!);
+      });
+
+    } else if (tableName === 'layer_kebakaran_hutan_2022') {
+      const periodeMap = new Map<string, number>();
+      const periodeColorMap = new Map<string, string>();
+      geojsonData.features.forEach((feature: any) => {
+        const periode = String(feature.properties.periode || '');
+        const luas = parseFloat(feature.properties.luas) || 0;
+        if (periode) periodeMap.set(periode, (periodeMap.get(periode) || 0) + luas);
+      });
+      const arr = Array.from(periodeMap.entries()).map(([periode, luas]) => ({
+        periode, luas, color: getRandomColor(periode, periodeColorMap)
+      }));
+      setKebakaran2022Data(arr);
+      arr.forEach(item => {
+        colorMap.set(item.periode, item.color!);
+        colorMappingRef.current.kebakaran2022.set(item.periode, item.color!);
+      });
+
+    } else if (tableName === 'layer_kebakaran_hutan_2023') {
+      const periodeColorMap = new Map<string, string>();
+      const uniquePeriode = new Set<string>();
+      geojsonData.features.forEach((feature: any) => {
+        const periode = String(feature.properties.periode || '');
+        if (periode) uniquePeriode.add(periode);
+      });
+      const arr = Array.from(uniquePeriode).map(periode => ({
+        periode,
+        color: getRandomColor(periode, periodeColorMap)
+      }));
+      setKebakaran2023Data(arr);
+      arr.forEach(item => {
+        colorMap.set(item.periode, item.color!);
+        colorMappingRef.current.kebakaran2023.set(item.periode, item.color!);
+      });
+
+    } else if (tableName === 'layer_kebakaran_hutan_2024') {
+      const periodeMap = new Map<string, number>();
+      const periodeColorMap = new Map<string, string>();
+      geojsonData.features.forEach((feature: any) => {
+        const periode = String(feature.properties.periode || '');
+        const luas = parseFloat(feature.properties.luas) || 0;
+        if (periode) periodeMap.set(periode, (periodeMap.get(periode) || 0) + luas);
+      });
+      const arr = Array.from(periodeMap.entries()).map(([periode, luas]) => ({
+        periode, luas, color: getRandomColor(periode, periodeColorMap)
+      }));
+      setKebakaran2024Data(arr);
+      arr.forEach(item => {
+        colorMap.set(item.periode, item.color!);
+        colorMappingRef.current.kebakaran2024.set(item.periode, item.color!);
+      });
     }
     
     // Styling function
@@ -913,7 +1188,37 @@ const loadLayerInBounds = async (tableName: string, customBounds?: [[number, num
     //       opacity: 0.8,
     //       fillOpacity: zoom > 10 ? 0.4 : 0.3
     //     };
-    } else {
+ } else if (['bahaya_kekeringan', 'bahaya_abrasi_dan_gelombang_ekstrim', 'bahaya_banjir', 'bahaya_banjir_bandang'].includes(tableName)) {
+      styleFunction = function(feature: any) {
+        const kelas = feature.properties.kelas || '';
+        const fillColor = colorMap.get(kelas) || '#808080';
+        return { color: fillColor, fillColor, weight: 1, opacity: 0.8, fillOpacity: 0.5 };
+      };
+    } else if (tableName === 'dta_danau') {
+      styleFunction = function(feature: any) {
+        const tipe = feature.properties.tipe_danau || '';
+        const fillColor = colorMap.get(tipe) || '#808080';
+        return { color: fillColor, fillColor, weight: 1, opacity: 0.8, fillOpacity: 0.5 };
+      };
+    } else if (tableName === 'rehabilitasi_das') {
+      styleFunction = function(feature: any) {
+        const bpdas = feature.properties.bpdas || '';
+        const fillColor = colorMap.get(bpdas) || '#808080';
+        return { color: fillColor, fillColor, weight: 1, opacity: 0.8, fillOpacity: 0.5 };
+      };
+    } else if (tableName === 'rehabilitasi_hutan') {
+      styleFunction = function(feature: any) {
+        const jenis_tana = String(feature.properties.jenis_tana || '');
+        const fillColor = colorMap.get(jenis_tana) || '#808080';
+        return { color: fillColor, fillColor, weight: 1, opacity: 0.8, fillOpacity: 0.5 };
+      };
+    } else if (['layer_kebakaran_hutan_2021', 'layer_kebakaran_hutan_2022', 'layer_kebakaran_hutan_2023', 'layer_kebakaran_hutan_2024'].includes(tableName)) {
+      styleFunction = function(feature: any) {
+        const periode = String(feature.properties.periode || '');
+        const fillColor = colorMap.get(periode) || '#808080';
+        return { color: fillColor, fillColor, weight: 1, opacity: 0.8, fillOpacity: 0.5 };
+      };
+     } else {
   // Untuk layer umum, beri warna berbeda per feature
   styleFunction = function(feature: any) {
     // Ambil warna berdasarkan property tertentu, misal: gid, id, atau nama
@@ -1122,7 +1427,18 @@ useEffect(() => {
       'rawan_erosi', 
       'rawan_longsor', 
       'rawan_limpasan', 
-      'rawan_karhutla'
+      'rawan_karhutla',
+      'bahaya_kekeringan',
+      'bahaya_abrasi_dan_gelombang_ekstrim',
+      'bahaya_banjir',
+      'bahaya_banjir_bandang',
+      'dta_danau',
+      'rehabilitasi_das',
+      'rehabilitasi_hutan',
+      'layer_kebakaran_hutan_2021',
+      'layer_kebakaran_hutan_2022',
+      'layer_kebakaran_hutan_2023',
+      'layer_kebakaran_hutan_2024',
     ];
 
     // Jika ada layer yang sebelumnya di-hover, reset hanya layer tersebut
@@ -1160,6 +1476,28 @@ useEffect(() => {
               originalColor = colorMappingRef.current.rawanLimpasan.get(layer.feature.properties.limpasan) || '#808080';
             } else if (hoveredLayerType === 'rawan_karhutla') {
               originalColor = colorMappingRef.current.rawanKarhutla.get(layer.feature.properties.kelas) || '#808080';
+            } else if (hoveredLayerType === 'bahaya_kekeringan') {
+              originalColor = colorMappingRef.current.bahayaKekeringan.get(layer.feature.properties.kelas) || '#808080';
+            } else if (hoveredLayerType === 'bahaya_abrasi_dan_gelombang_ekstrim') {
+              originalColor = colorMappingRef.current.bahayaAbrasi.get(layer.feature.properties.kelas) || '#808080';
+            } else if (hoveredLayerType === 'bahaya_banjir') {
+              originalColor = colorMappingRef.current.bahayaBanjir.get(layer.feature.properties.kelas) || '#808080';
+            } else if (hoveredLayerType === 'bahaya_banjir_bandang') {
+              originalColor = colorMappingRef.current.bahayaBanjirBandang.get(layer.feature.properties.kelas) || '#808080';
+            } else if (hoveredLayerType === 'dta_danau') {
+              originalColor = colorMappingRef.current.dtaDanau.get(layer.feature.properties.tipe_danau) || '#808080';
+            } else if (hoveredLayerType === 'rehabilitasi_das') {
+              originalColor = colorMappingRef.current.rehabilitasiDas.get(layer.feature.properties.bpdas) || '#808080';
+            } else if (hoveredLayerType === 'rehabilitasi_hutan') {
+              originalColor = colorMappingRef.current.rehabilitasiHutan.get(String(layer.feature.properties.jenis_tana)) || '#808080';
+            } else if (hoveredLayerType === 'layer_kebakaran_hutan_2021') {
+              originalColor = colorMappingRef.current.kebakaran2021.get(String(layer.feature.properties.periode)) || '#808080';
+            } else if (hoveredLayerType === 'layer_kebakaran_hutan_2022') {
+              originalColor = colorMappingRef.current.kebakaran2022.get(String(layer.feature.properties.periode)) || '#808080';
+            } else if (hoveredLayerType === 'layer_kebakaran_hutan_2023') {
+              originalColor = colorMappingRef.current.kebakaran2023.get(String(layer.feature.properties.periode)) || '#808080';
+            } else if (hoveredLayerType === 'layer_kebakaran_hutan_2024') {
+              originalColor = colorMappingRef.current.kebakaran2024.get(String(layer.feature.properties.periode)) || '#808080';
             }
             
             // Apply normal style with original color
@@ -1205,6 +1543,28 @@ useEffect(() => {
               shouldHighlight = layer.feature.properties.limpasan === hoveredLayerKey;
             } else if (hoveredLayerType === 'rawan_karhutla') {
               shouldHighlight = layer.feature.properties.kelas === hoveredLayerKey;
+            } else if (hoveredLayerType === 'bahaya_kekeringan') {
+              shouldHighlight = layer.feature.properties.kelas === hoveredLayerKey;
+            } else if (hoveredLayerType === 'bahaya_abrasi_dan_gelombang_ekstrim') {
+              shouldHighlight = layer.feature.properties.kelas === hoveredLayerKey;
+            } else if (hoveredLayerType === 'bahaya_banjir') {
+              shouldHighlight = layer.feature.properties.kelas === hoveredLayerKey;
+            } else if (hoveredLayerType === 'bahaya_banjir_bandang') {
+              shouldHighlight = layer.feature.properties.kelas === hoveredLayerKey;
+            } else if (hoveredLayerType === 'dta_danau') {
+              shouldHighlight = layer.feature.properties.tipe_danau === hoveredLayerKey;
+            } else if (hoveredLayerType === 'rehabilitasi_das') {
+              shouldHighlight = layer.feature.properties.bpdas === hoveredLayerKey;
+            } else if (hoveredLayerType === 'rehabilitasi_hutan') {
+              shouldHighlight = String(layer.feature.properties.jenis_tana) === hoveredLayerKey;
+            } else if (hoveredLayerType === 'layer_kebakaran_hutan_2021') {
+              shouldHighlight = String(layer.feature.properties.periode) === hoveredLayerKey;
+            } else if (hoveredLayerType === 'layer_kebakaran_hutan_2022') {
+              shouldHighlight = String(layer.feature.properties.periode) === hoveredLayerKey;
+            } else if (hoveredLayerType === 'layer_kebakaran_hutan_2023') {
+              shouldHighlight = String(layer.feature.properties.periode) === hoveredLayerKey;
+            } else if (hoveredLayerType === 'layer_kebakaran_hutan_2024') {
+              shouldHighlight = String(layer.feature.properties.periode) === hoveredLayerKey;
             }
 
             if (shouldHighlight) {
@@ -2547,6 +2907,19 @@ const checkLayerAvailability = async (bounds: [[number, number], [number, number
       if (tableName === 'rawan_karhutla') {
         setRawanKarhutlaData([]);
       }
+      if (tableName === 'bahaya_kekeringan') setBahayaKekeringanData([]);
+      if (tableName === 'bahaya_abrasi_dan_gelombang_ekstrim') setBahayaAbrasiData([]);
+      if (tableName === 'bahaya_banjir') setBahayaBanjirData([]);
+      if (tableName === 'bahaya_banjir_bandang') setBahayaBanjirBandangData([]);
+      if (tableName === 'dta_danau') setDtaDanauData([]);
+      if (tableName === 'rehabilitasi_das') setRehabilitasiDasData([]);
+      if (tableName === 'rehabilitasi_hutan') setRehabilitasiHutanData([]);
+      if (tableName === 'restorasi_gambut') setRestorasiGambutData([]);
+      if (tableName === 'penerapan_teknik_kta') setPenerapanTeknikKtaData([]);
+      if (tableName === 'layer_kebakaran_hutan_2021') setKebakaran2021Data([]);
+      if (tableName === 'layer_kebakaran_hutan_2022') setKebakaran2022Data([]);
+      if (tableName === 'layer_kebakaran_hutan_2023') setKebakaran2023Data([]);
+      if (tableName === 'layer_kebakaran_hutan_2024') setKebakaran2024Data([]);
     } else {
       console.log('Layer not found in layerGroupsRef or map not ready');
     }
@@ -2554,23 +2927,21 @@ const checkLayerAvailability = async (bounds: [[number, number], [number, number
 };
 
   // Fungsi helper untuk generate warna konsisten berdasarkan nama tabel
-  const getColorForTable = (tableName: string) => {
-    const colors = [
-      '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8',
-      '#F7DC6F', '#BB8FCE', '#85C1E2', '#F8B739', '#52BE80',
-      '#E74C3C', '#3498DB', '#9B59B6', '#1ABC9C', '#F39C12',
-      '#D35400', '#C0392B', '#2980B9', '#8E44AD', '#16A085'
-    ];
-    
-    // Generate hash dari nama tabel untuk mendapatkan index yang konsisten
-    let hash = 0;
-    for (let i = 0; i < tableName.length; i++) {
-      hash = tableName.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    
-    const index = Math.abs(hash) % colors.length;
-    return colors[index];
-  };
+  const getColorForTable = (tableName: string): string => {
+  const colors = [
+    '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', 
+    '#F7DC6F', '#BB8FCE', '#85C1E2', '#F8B739', '#52BE80', 
+    '#EC7063', '#5DADE2', '#F1948A', '#73C6B6', '#F39C12'
+  ];
+  
+  // Hash dari nama tabel untuk mendapatkan warna yang konsisten
+  let hash = 0;
+  for (let i = 0; i < tableName.length; i++) {
+    hash = tableName.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % colors.length;
+  return colors[index];
+};
 
   // Fetch layers from database on mount
   useEffect(() => {
@@ -2904,7 +3275,13 @@ useEffect(() => {
   const [activeBottomTab, setActiveBottomTab] = useState('curahHujan');
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(null);
 
-  const layersWithBottomTabs = ['tutupan_lahan', 'penutupan_lahan_2024', 'pl2024', 'jenis_tanah', 'geologi', 'lahan_kritis', 'rawan_erosi', 'rawan_longsor', 'rawan_limpasan', 'rawan_karhutla'];
+  const layersWithBottomTabs = [
+    'tutupan_lahan', 'penutupan_lahan_2024', 'pl2024', 'jenis_tanah', 'geologi',
+    'lahan_kritis', 'rawan_erosi', 'rawan_longsor', 'rawan_limpasan', 'rawan_karhutla',
+    'bahaya_kekeringan', 'bahaya_abrasi_dan_gelombang_ekstrim', 'bahaya_banjir', 'bahaya_banjir_bandang',
+    'dta_danau', 'rehabilitasi_das', 'rehabilitasi_hutan', 'restorasi_gambut', 'penerapan_teknik_kta',
+    'layer_kebakaran_hutan_2021', 'layer_kebakaran_hutan_2022', 'layer_kebakaran_hutan_2023', 'layer_kebakaran_hutan_2024'
+  ];
 
   useEffect(() => {
     if (!mapInstanceRef.current) return;
@@ -2920,7 +3297,20 @@ useEffect(() => {
       'rawan_erosi': 'rawan_erosi',
       'rawan_longsor': 'rawan_longsor',
       'rawan_limpasan': 'rawan_limpasan',
-      'rawan_karhutla': 'rawan_karhutla'
+      'rawan_karhutla': 'rawan_karhutla',
+      'bahaya_kekeringan': 'bahaya_kekeringan',
+      'bahaya_abrasi': 'bahaya_abrasi_dan_gelombang_ekstrim',
+      'bahaya_banjir': 'bahaya_banjir',
+      'bahaya_banjir_bandang': 'bahaya_banjir_bandang',
+      'dta_danau': 'dta_danau',
+      'rehabilitasi_das': 'rehabilitasi_das',
+      'rehabilitasi_hutan': 'rehabilitasi_hutan',
+      'restorasi_gambut': 'restorasi_gambut',
+      'penerapan_teknik_kta': 'penerapan_teknik_kta',
+      'kebakaran_2021': 'layer_kebakaran_hutan_2021',
+      'kebakaran_2022': 'layer_kebakaran_hutan_2022',
+      'kebakaran_2023': 'layer_kebakaran_hutan_2023',
+      'kebakaran_2024': 'layer_kebakaran_hutan_2024',
     };
     
     // Sembunyikan semua layer yang punya bottom tab
@@ -3283,6 +3673,45 @@ useEffect(() => {
     tabs.push({ id: 'rawan_karhutla', label: 'Rawan Karhutla', icon: '🔥' });
   }
   
+  if (activeLayers.has('bahaya_kekeringan')) {
+    tabs.push({ id: 'bahaya_kekeringan', label: 'Bahaya Kekeringan', icon: '☀️' });
+  }
+  if (activeLayers.has('bahaya_abrasi_dan_gelombang_ekstrim')) {
+    tabs.push({ id: 'bahaya_abrasi', label: 'Bahaya Abrasi', icon: '🌊' });
+  }
+  if (activeLayers.has('bahaya_banjir')) {
+    tabs.push({ id: 'bahaya_banjir', label: 'Bahaya Banjir', icon: '🌧️' });
+  }
+  if (activeLayers.has('bahaya_banjir_bandang')) {
+    tabs.push({ id: 'bahaya_banjir_bandang', label: 'Bahaya Banjir Bandang', icon: '🌊' });
+  }
+  if (activeLayers.has('dta_danau')) {
+    tabs.push({ id: 'dta_danau', label: 'DTA Danau', icon: '🏞️' });
+  }
+  if (activeLayers.has('rehabilitasi_das')) {
+    tabs.push({ id: 'rehabilitasi_das', label: 'Rehabilitasi DAS', icon: '🌿' });
+  }
+  if (activeLayers.has('rehabilitasi_hutan')) {
+    tabs.push({ id: 'rehabilitasi_hutan', label: 'Rehabilitasi Hutan', icon: '🌲' });
+  }
+  if (activeLayers.has('restorasi_gambut')) {
+    tabs.push({ id: 'restorasi_gambut', label: 'Restorasi Gambut', icon: '🪵' });
+  }
+  if (activeLayers.has('penerapan_teknik_kta')) {
+    tabs.push({ id: 'penerapan_teknik_kta', label: 'Teknik KTA', icon: '🏔️' });
+  }
+  if (activeLayers.has('layer_kebakaran_hutan_2021')) {
+    tabs.push({ id: 'kebakaran_2021', label: 'Kebakaran 2021', icon: '🔥' });
+  }
+  if (activeLayers.has('layer_kebakaran_hutan_2022')) {
+    tabs.push({ id: 'kebakaran_2022', label: 'Kebakaran 2022', icon: '🔥' });
+  }
+  if (activeLayers.has('layer_kebakaran_hutan_2023')) {
+    tabs.push({ id: 'kebakaran_2023', label: 'Kebakaran 2023', icon: '🔥' });
+  }
+  if (activeLayers.has('layer_kebakaran_hutan_2024')) {
+    tabs.push({ id: 'kebakaran_2024', label: 'Kebakaran 2024', icon: '🔥' });
+  }
   return tabs;
 }, [activeLayers, activeKejadianLayers]);
 
@@ -3957,6 +4386,609 @@ case 'rawan_limpasan':
     );
   }
   break;
+
+case 'bahaya_kekeringan':
+      if (activeLayers.has('bahaya_kekeringan') && bahayaKekeringanData.length > 0) {
+        return (
+          <div className="p-3 h-full flex flex-col">
+            <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white z-10">
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '100px' }}>Warna Layer</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Kelas</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '140px' }}>Luas (Shape Area)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bahayaKekeringanData.map((item, idx) => (
+                    <tr 
+                      key={idx} 
+                      className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                      onMouseEnter={() => {
+                        setHoveredLayerKey(item.kelas);
+                        setHoveredLayerType('bahaya_kekeringan');
+                        setHoveredLayerColor(item.color || '#808080');
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredLayerKey(null);
+                        setHoveredLayerType(null);
+                        setHoveredLayerColor(null);
+                      }}
+                    >
+                      <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
+                      <td className="py-2 px-2"><div className="w-8 h-4 rounded border border-gray-300" style={{ backgroundColor: item.color }}></div></td>
+                      <td className="py-2 px-2 text-gray-700 break-words">{item.kelas || '-'}</td>
+                      <td className="py-2 px-2 text-gray-700">{item.luas ? item.luas.toFixed(2) : '0'}</td>
+                    </tr>
+                  ))}
+                  <tr><td colSpan={4} style={{ height: '80px' }}></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      } else if (activeLayers.has('bahaya_kekeringan')) {
+        return <div className="p-3 flex items-center justify-center h-full"><div className="text-center text-gray-500"><p className="text-sm">Tidak ada data bahaya kekeringan di area yang dipilih</p></div></div>;
+      }
+      break;
+
+    case 'bahaya_abrasi':
+      if (activeLayers.has('bahaya_abrasi_dan_gelombang_ekstrim') && bahayaAbrasiData.length > 0) {
+        return (
+          <div className="p-3 h-full flex flex-col">
+            <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white z-10">
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '100px' }}>Warna Layer</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Kelas</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '140px' }}>Luas (Shape Area)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bahayaAbrasiData.map((item, idx) => (
+                    <tr 
+                      key={idx} 
+                      className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                      onMouseEnter={() => {
+                        setHoveredLayerKey(item.kelas);
+                        setHoveredLayerType('bahaya_abrasi_dan_gelombang_ekstrim');
+                        setHoveredLayerColor(item.color || '#808080');
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredLayerKey(null);
+                        setHoveredLayerType(null);
+                        setHoveredLayerColor(null);
+                      }}
+                    >
+                      <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
+                      <td className="py-2 px-2"><div className="w-8 h-4 rounded border border-gray-300" style={{ backgroundColor: item.color }}></div></td>
+                      <td className="py-2 px-2 text-gray-700 break-words">{item.kelas || '-'}</td>
+                      <td className="py-2 px-2 text-gray-700">{item.luas ? item.luas.toFixed(2) : '0'}</td>
+                    </tr>
+                  ))}
+                  <tr><td colSpan={4} style={{ height: '80px' }}></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      } else if (activeLayers.has('bahaya_abrasi_dan_gelombang_ekstrim')) {
+        return <div className="p-3 flex items-center justify-center h-full"><div className="text-center text-gray-500"><p className="text-sm">Tidak ada data bahaya abrasi di area yang dipilih</p></div></div>;
+      }
+      break;
+
+    case 'bahaya_banjir':
+      if (activeLayers.has('bahaya_banjir') && bahayaBanjirData.length > 0) {
+        return (
+          <div className="p-3 h-full flex flex-col">
+            <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white z-10">
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '100px' }}>Warna Layer</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Kelas</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '140px' }}>Luas (Shape Area)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bahayaBanjirData.map((item, idx) => (
+                    <tr 
+                      key={idx} 
+                      className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                      onMouseEnter={() => {
+                        setHoveredLayerKey(item.kelas);
+                        setHoveredLayerType('bahaya_banjir');
+                        setHoveredLayerColor(item.color || '#808080');
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredLayerKey(null);
+                        setHoveredLayerType(null);
+                        setHoveredLayerColor(null);
+                      }}
+                    >
+                      <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
+                      <td className="py-2 px-2"><div className="w-8 h-4 rounded border border-gray-300" style={{ backgroundColor: item.color }}></div></td>
+                      <td className="py-2 px-2 text-gray-700 break-words">{item.kelas || '-'}</td>
+                      <td className="py-2 px-2 text-gray-700">{item.luas ? item.luas.toFixed(2) : '0'}</td>
+                    </tr>
+                  ))}
+                  <tr><td colSpan={4} style={{ height: '80px' }}></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      } else if (activeLayers.has('bahaya_banjir')) {
+        return <div className="p-3 flex items-center justify-center h-full"><div className="text-center text-gray-500"><p className="text-sm">Tidak ada data bahaya banjir di area yang dipilih</p></div></div>;
+      }
+      break;
+
+    case 'bahaya_banjir_bandang':
+      if (activeLayers.has('bahaya_banjir_bandang') && bahayaBanjirBandangData.length > 0) {
+        return (
+          <div className="p-3 h-full flex flex-col">
+            <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white z-10">
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '100px' }}>Warna Layer</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Kelas</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '140px' }}>Luas (Shape Area)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bahayaBanjirBandangData.map((item, idx) => (
+                    <tr 
+                      key={idx} 
+                      className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                      onMouseEnter={() => {
+                        setHoveredLayerKey(item.kelas);
+                        setHoveredLayerType('bahaya_banjir_bandang');
+                        setHoveredLayerColor(item.color || '#808080');
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredLayerKey(null);
+                        setHoveredLayerType(null);
+                        setHoveredLayerColor(null);
+                      }}
+                    >
+                      <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
+                      <td className="py-2 px-2"><div className="w-8 h-4 rounded border border-gray-300" style={{ backgroundColor: item.color }}></div></td>
+                      <td className="py-2 px-2 text-gray-700 break-words">{item.kelas || '-'}</td>
+                      <td className="py-2 px-2 text-gray-700">{item.luas ? item.luas.toFixed(2) : '0'}</td>
+                    </tr>
+                  ))}
+                  <tr><td colSpan={4} style={{ height: '80px' }}></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      } else if (activeLayers.has('bahaya_banjir_bandang')) {
+        return <div className="p-3 flex items-center justify-center h-full"><div className="text-center text-gray-500"><p className="text-sm">Tidak ada data bahaya banjir bandang di area yang dipilih</p></div></div>;
+      }
+      break;
+
+    case 'dta_danau':
+      if (activeLayers.has('dta_danau') && dtaDanauData.length > 0) {
+        return (
+          <div className="p-3 h-full flex flex-col">
+            <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white z-10">
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '100px' }}>Warna Layer</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Tipe Danau</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '120px' }}>Luas (Ha)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dtaDanauData.map((item, idx) => (
+                    <tr 
+                      key={idx} 
+                      className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                      onMouseEnter={() => {
+                        setHoveredLayerKey(item.tipe_danau);
+                        setHoveredLayerType('dta_danau');
+                        setHoveredLayerColor(item.color || '#808080');
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredLayerKey(null);
+                        setHoveredLayerType(null);
+                        setHoveredLayerColor(null);
+                      }}
+                    >
+                      <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
+                      <td className="py-2 px-2"><div className="w-8 h-4 rounded border border-gray-300" style={{ backgroundColor: item.color }}></div></td>
+                      <td className="py-2 px-2 text-gray-700 break-words">{item.tipe_danau || '-'}</td>
+                      <td className="py-2 px-2 text-gray-700">{item.luas ? item.luas.toFixed(2) : '0'}</td>
+                    </tr>
+                  ))}
+                  <tr><td colSpan={4} style={{ height: '80px' }}></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      } else if (activeLayers.has('dta_danau')) {
+        return <div className="p-3 flex items-center justify-center h-full"><div className="text-center text-gray-500"><p className="text-sm">Tidak ada data DTA Danau di area yang dipilih</p></div></div>;
+      }
+      break;
+
+    case 'rehabilitasi_das':
+      if (activeLayers.has('rehabilitasi_das') && rehabilitasiDasData.length > 0) {
+        return (
+          <div className="p-3 h-full flex flex-col">
+            <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white z-10">
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '100px' }}>Warna Layer</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">BPDAS</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '120px' }}>Luas RDAS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rehabilitasiDasData.map((item, idx) => (
+                    <tr 
+                      key={idx} 
+                      className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                      onMouseEnter={() => {
+                        setHoveredLayerKey(item.bpdas);
+                        setHoveredLayerType('rehabilitasi_das');
+                        setHoveredLayerColor(item.color || '#808080');
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredLayerKey(null);
+                        setHoveredLayerType(null);
+                        setHoveredLayerColor(null);
+                      }}
+                    >
+                      <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
+                      <td className="py-2 px-2"><div className="w-8 h-4 rounded border border-gray-300" style={{ backgroundColor: item.color }}></div></td>
+                      <td className="py-2 px-2 text-gray-700 break-words">{item.bpdas || '-'}</td>
+                      <td className="py-2 px-2 text-gray-700">{item.luas ? item.luas.toFixed(2) : '0'}</td>
+                    </tr>
+                  ))}
+                  <tr><td colSpan={4} style={{ height: '80px' }}></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      } else if (activeLayers.has('rehabilitasi_das')) {
+        return <div className="p-3 flex items-center justify-center h-full"><div className="text-center text-gray-500"><p className="text-sm">Tidak ada data rehabilitasi DAS di area yang dipilih</p></div></div>;
+      }
+      break;
+
+    case 'rehabilitasi_hutan':
+      if (activeLayers.has('rehabilitasi_hutan') && rehabilitasiHutanData.length > 0) {
+        return (
+          <div className="p-3 h-full flex flex-col">
+            <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white z-10">
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '100px' }}>Warna Layer</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Jenis Tanaman</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '120px' }}>Luas (Ha)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rehabilitasiHutanData.map((item, idx) => (
+                    <tr 
+                      key={idx} 
+                      className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                      onMouseEnter={() => {
+                        setHoveredLayerKey(item.jenis_tana);
+                        setHoveredLayerType('rehabilitasi_hutan');
+                        setHoveredLayerColor(item.color || '#808080');
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredLayerKey(null);
+                        setHoveredLayerType(null);
+                        setHoveredLayerColor(null);
+                      }}
+                    >
+                      <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
+                      <td className="py-2 px-2"><div className="w-8 h-4 rounded border border-gray-300" style={{ backgroundColor: item.color }}></div></td>
+                      <td className="py-2 px-2 text-gray-700 break-words" style={{ maxWidth: '200px', wordBreak: 'break-word' }}>{item.jenis_tana || '-'}</td>
+                      <td className="py-2 px-2 text-gray-700">{item.luas ? item.luas.toFixed(2) : '0'}</td>
+                    </tr>
+                  ))}
+                  <tr><td colSpan={4} style={{ height: '80px' }}></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      } else if (activeLayers.has('rehabilitasi_hutan')) {
+        return <div className="p-3 flex items-center justify-center h-full"><div className="text-center text-gray-500"><p className="text-sm">Tidak ada data rehabilitasi hutan di area yang dipilih</p></div></div>;
+      }
+      break;
+
+    case 'restorasi_gambut':
+      if (activeLayers.has('restorasi_gambut') && restorasiGambutData.length > 0) {
+        return (
+          <div className="p-3 h-full flex flex-col">
+            <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white z-10">
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Jenis</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Bahan</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {restorasiGambutData.map((item, idx) => (
+                    <tr 
+                      key={idx} 
+                      className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                      onMouseEnter={() => {
+                        setHoveredLayerKey(item.jenis);
+                        setHoveredLayerType('restorasi_gambut');
+                        setHoveredLayerColor(item.color || '#808080');
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredLayerKey(null);
+                        setHoveredLayerType(null);
+                        setHoveredLayerColor(null);
+                      }}
+                    >
+                      <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
+                      <td className="py-2 px-2 text-gray-700 break-words">{item.jenis || '-'}</td>
+                      <td className="py-2 px-2 text-gray-700 break-words">{item.bahan || '-'}</td>
+                    </tr>
+                  ))}
+                  <tr><td colSpan={3} style={{ height: '80px' }}></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      } else if (activeLayers.has('restorasi_gambut')) {
+        return <div className="p-3 flex items-center justify-center h-full"><div className="text-center text-gray-500"><p className="text-sm">Tidak ada data restorasi gambut di area yang dipilih</p></div></div>;
+      }
+      break;
+
+    case 'penerapan_teknik_kta':
+      if (activeLayers.has('penerapan_teknik_kta') && penerapanTeknikKtaData.length > 0) {
+        return (
+          <div className="p-3 h-full flex flex-col">
+            <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white z-10">
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">DAS</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Sub DAS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {penerapanTeknikKtaData.map((item, idx) => (
+                    <tr 
+                      key={idx} 
+                      className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                      onMouseEnter={() => {
+                        setHoveredLayerKey(item.subdas);
+                        setHoveredLayerType('penerapan_teknik_kta');
+                        setHoveredLayerColor(item.color || '#808080');
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredLayerKey(null);
+                        setHoveredLayerType(null);
+                        setHoveredLayerColor(null);
+                      }}
+                    >
+                      <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
+                      <td className="py-2 px-2 text-gray-700 break-words">{item.das || '-'}</td>
+                      <td className="py-2 px-2 text-gray-700 break-words">{item.subdas || '-'}</td>
+                    </tr>
+                  ))}
+                  <tr><td colSpan={3} style={{ height: '80px' }}></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      } else if (activeLayers.has('penerapan_teknik_kta')) {
+        return <div className="p-3 flex items-center justify-center h-full"><div className="text-center text-gray-500"><p className="text-sm">Tidak ada data penerapan teknik KTA di area yang dipilih</p></div></div>;
+      }
+      break;
+
+    case 'kebakaran_2021':
+      if (activeLayers.has('layer_kebakaran_hutan_2021') && kebakaran2021Data.length > 0) {
+        return (
+          <div className="p-3 h-full flex flex-col">
+            <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white z-10">
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '100px' }}>Warna Layer</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Periode</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {kebakaran2021Data.map((item, idx) => (
+                    <tr 
+                      key={idx} 
+                      className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                      onMouseEnter={() => {
+                        setHoveredLayerKey(item.periode);
+                        setHoveredLayerType('layer_kebakaran_hutan_2021');
+                        setHoveredLayerColor(item.color || '#808080');
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredLayerKey(null);
+                        setHoveredLayerType(null);
+                        setHoveredLayerColor(null);
+                      }}
+                    >
+                      <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
+                      <td className="py-2 px-2"><div className="w-8 h-4 rounded border border-gray-300" style={{ backgroundColor: item.color }}></div></td>
+                      <td className="py-2 px-2 text-gray-700 break-words">{item.periode || '-'}</td>
+                    </tr>
+                  ))}
+                  <tr><td colSpan={3} style={{ height: '80px' }}></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      } else if (activeLayers.has('layer_kebakaran_hutan_2021')) {
+        return <div className="p-3 flex items-center justify-center h-full"><div className="text-center text-gray-500"><p className="text-sm">Tidak ada data kebakaran hutan 2021 di area yang dipilih</p></div></div>;
+      }
+      break;
+
+    case 'kebakaran_2022':
+      if (activeLayers.has('layer_kebakaran_hutan_2022') && kebakaran2022Data.length > 0) {
+        return (
+          <div className="p-3 h-full flex flex-col">
+            <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white z-10">
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '100px' }}>Warna Layer</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Periode</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '120px' }}>Luas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {kebakaran2022Data.map((item, idx) => (
+                    <tr 
+                      key={idx} 
+                      className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                      onMouseEnter={() => {
+                        setHoveredLayerKey(item.periode);
+                        setHoveredLayerType('layer_kebakaran_hutan_2022');
+                        setHoveredLayerColor(item.color || '#808080');
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredLayerKey(null);
+                        setHoveredLayerType(null);
+                        setHoveredLayerColor(null);
+                      }}
+                    >
+                      <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
+                      <td className="py-2 px-2"><div className="w-8 h-4 rounded border border-gray-300" style={{ backgroundColor: item.color }}></div></td>
+                      <td className="py-2 px-2 text-gray-700 break-words">{item.periode || '-'}</td>
+                      <td className="py-2 px-2 text-gray-700">{item.luas ? item.luas.toFixed(2) : '0'}</td>
+                    </tr>
+                  ))}
+                  <tr><td colSpan={4} style={{ height: '80px' }}></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      } else if (activeLayers.has('layer_kebakaran_hutan_2022')) {
+        return <div className="p-3 flex items-center justify-center h-full"><div className="text-center text-gray-500"><p className="text-sm">Tidak ada data kebakaran hutan 2022 di area yang dipilih</p></div></div>;
+      }
+      break;
+
+    case 'kebakaran_2023':
+      if (activeLayers.has('layer_kebakaran_hutan_2023') && kebakaran2023Data.length > 0) {
+        return (
+          <div className="p-3 h-full flex flex-col">
+            <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white z-10">
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '100px' }}>Warna Layer</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Periode</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {kebakaran2023Data.map((item, idx) => (
+                    <tr 
+                      key={idx} 
+                      className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                      onMouseEnter={() => {
+                        setHoveredLayerKey(item.periode);
+                        setHoveredLayerType('layer_kebakaran_hutan_2023');
+                        setHoveredLayerColor(item.color || '#808080');
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredLayerKey(null);
+                        setHoveredLayerType(null);
+                        setHoveredLayerColor(null);
+                      }}
+                    >
+                      <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
+                      <td className="py-2 px-2"><div className="w-8 h-4 rounded border border-gray-300" style={{ backgroundColor: item.color }}></div></td>
+                      <td className="py-2 px-2 text-gray-700 break-words">{item.periode || '-'}</td>
+                    </tr>
+                  ))}
+                  <tr><td colSpan={3} style={{ height: '80px' }}></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      } else if (activeLayers.has('layer_kebakaran_hutan_2023')) {
+        return <div className="p-3 flex items-center justify-center h-full"><div className="text-center text-gray-500"><p className="text-sm">Tidak ada data kebakaran hutan 2023 di area yang dipilih</p></div></div>;
+      }
+      break;
+
+    case 'kebakaran_2024':
+      if (activeLayers.has('layer_kebakaran_hutan_2024') && kebakaran2024Data.length > 0) {
+        return (
+          <div className="p-3 h-full flex flex-col">
+            <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white z-10">
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '100px' }}>Warna Layer</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Periode</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '120px' }}>Luas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {kebakaran2024Data.map((item, idx) => (
+                    <tr 
+                      key={idx} 
+                      className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                      onMouseEnter={() => {
+                        setHoveredLayerKey(item.periode);
+                        setHoveredLayerType('layer_kebakaran_hutan_2024');
+                        setHoveredLayerColor(item.color || '#808080');
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredLayerKey(null);
+                        setHoveredLayerType(null);
+                        setHoveredLayerColor(null);
+                      }}
+                    >
+                      <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
+                      <td className="py-2 px-2"><div className="w-8 h-4 rounded border border-gray-300" style={{ backgroundColor: item.color }}></div></td>
+                      <td className="py-2 px-2 text-gray-700 break-words">{item.periode || '-'}</td>
+                      <td className="py-2 px-2 text-gray-700">{item.luas ? item.luas.toFixed(2) : '0'}</td>
+                    </tr>
+                  ))}
+                  <tr><td colSpan={4} style={{ height: '80px' }}></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      } else if (activeLayers.has('layer_kebakaran_hutan_2024')) {
+        return <div className="p-3 flex items-center justify-center h-full"><div className="text-center text-gray-500"><p className="text-sm">Tidak ada data kebakaran hutan 2024 di area yang dipilih</p></div></div>;
+      }
+      break;
 
 case 'rawan_karhutla':
   if (activeLayers.has('rawan_karhutla') && rawanKarhutlaData.length > 0) {
@@ -4675,7 +5707,20 @@ case 'rawan_karhutla':
                 'rawan_erosi': 'rawan_erosi',
                 'rawan_longsor': 'rawan_longsor',
                 'rawan_limpasan': 'rawan_limpasan',
-                'rawan_karhutla': 'rawan_karhutla'
+                'rawan_karhutla': 'rawan_karhutla',
+                'bahaya_kekeringan': 'bahaya_kekeringan',
+                'bahaya_abrasi': 'bahaya_abrasi_dan_gelombang_ekstrim',
+                'bahaya_banjir': 'bahaya_banjir',
+                'bahaya_banjir_bandang': 'bahaya_banjir_bandang',
+                'dta_danau': 'dta_danau',
+                'rehabilitasi_das': 'rehabilitasi_das',
+                'rehabilitasi_hutan': 'rehabilitasi_hutan',
+                'restorasi_gambut': 'restorasi_gambut',
+                'penerapan_teknik_kta': 'penerapan_teknik_kta',
+                'kebakaran_2021': 'layer_kebakaran_hutan_2021',
+                'kebakaran_2022': 'layer_kebakaran_hutan_2022',
+                'kebakaran_2023': 'layer_kebakaran_hutan_2023',
+                'kebakaran_2024': 'layer_kebakaran_hutan_2024',
               };
               return mapping[tabId] || '';
             };
