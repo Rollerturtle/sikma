@@ -153,6 +153,7 @@ const [availableLayers, setAvailableLayers] = useState<{
   const [kebakaran2022Data, setKebakaran2022Data] = useState<Array<{periode: string; luas: number; color?: string}>>([]);
   const [kebakaran2023Data, setKebakaran2023Data] = useState<Array<{periode: string; color?: string}>>([]);
   const [kebakaran2024Data, setKebakaran2024Data] = useState<Array<{periode: string; luas: number; color?: string}>>([]);
+  const [kawasanHutanData, setKawasanHutanData] = useState<Array<{fungsikws: string; deskripsi_domain: string; color?: string}>>([]);
 
   const colorMappingRef = useRef<{
     tutupanLahan: Map<string, string>;
@@ -176,6 +177,7 @@ const [availableLayers, setAvailableLayers] = useState<{
     kebakaran2022: Map<string, string>;
     kebakaran2023: Map<string, string>;
     kebakaran2024: Map<string, string>;
+    kawasanHutan: Map<string, string>;
   }>({
     tutupanLahan: new Map(),
     penutupanLahan2024: new Map(),
@@ -198,6 +200,7 @@ const [availableLayers, setAvailableLayers] = useState<{
     kebakaran2022: new Map(),
     kebakaran2023: new Map(),
     kebakaran2024: new Map(),
+    kawasanHutan: new Map(),
   });
 
   const tutupanLahanColors = {
@@ -1046,6 +1049,48 @@ const loadLayerInBounds = async (tableName: string, customBounds?: [[number, num
         colorMap.set(item.periode, item.color!);
         colorMappingRef.current.kebakaran2024.set(item.periode, item.color!);
       });
+    } else if (tableName === 'kawasan_hutan') {
+      const mappingKawasanHutan: Record<string, string> = {
+        '000000': 'Belum terdefinisi',
+        '100000': 'Kawasan Suaka Alam/Kawasan Pelestarian Alam',
+        '100100': 'Hutan Lindung',
+        '100200': 'Hutan (Kawasan) Suaka Alam/Wisata',
+        '100300': 'Hutan Produksi Tetap',
+        '100500': 'Hutan Produksi yang dapat di Konversi',
+        '100600': 'Hutan Negara Bebas',
+        '100700': 'Areal Penggunaan Lain',
+        '500100': 'Danau',
+        '500300': 'Tubuh Air',
+        '100210': 'Cagar Alam',
+        '100220': 'Suaka Margastwa',
+        '100230': 'Taman Buru',
+        '100240': 'Taman Nasional',
+        '100250': 'Taman Wisata Alam/Hutan Wisata',
+        '100260': 'Taman Hutan Raya',
+        '100201': 'Hutan Suaka Alam/Wisata (Perairan)',
+        '100211': 'Cagar Alam (Perairan)',
+        '100221': 'Suaka Margasatwa (Perairan)',
+        '100241': 'Taman Nasional (Perairan)',
+        '100251': 'Taman Wisata Alam/Hutan Wisata (Perairan)',
+      };
+      const kawasanColorMap = new Map<string, string>();
+      const uniqueMap = new Map<string, string>(); // fungsikws -> deskripsi_domain
+      geojsonData.features.forEach((feature: any) => {
+        const fungsikws = String(feature.properties.fungsikws ?? '');
+        if (fungsikws && !uniqueMap.has(fungsikws)) {
+          const deskripsi = mappingKawasanHutan[fungsikws] || `Kode ${fungsikws}`;
+          uniqueMap.set(fungsikws, deskripsi);
+        }
+      });
+      const arr = Array.from(uniqueMap.entries()).map(([fungsikws, deskripsi_domain]) => {
+        const color = getRandomColor(fungsikws, kawasanColorMap);
+        return { fungsikws, deskripsi_domain, color };
+      });
+      setKawasanHutanData(arr);
+      arr.forEach(item => {
+        colorMap.set(item.fungsikws, item.color!);
+        colorMappingRef.current.kawasanHutan.set(item.fungsikws, item.color!);
+      });
     }
     
     // Styling function
@@ -1218,6 +1263,12 @@ const loadLayerInBounds = async (tableName: string, customBounds?: [[number, num
         const fillColor = colorMap.get(periode) || '#808080';
         return { color: fillColor, fillColor, weight: 1, opacity: 0.8, fillOpacity: 0.5 };
       };
+     } else if (tableName === 'kawasan_hutan') {
+      styleFunction = function(feature: any) {
+        const fungsikws = String(feature.properties.fungsikws ?? '');
+        const fillColor = colorMap.get(fungsikws) || '#808080';
+        return { color: fillColor, fillColor, weight: 1, opacity: 0.8, fillOpacity: 0.5 };
+      }
      } else {
   // Untuk layer umum, beri warna berbeda per feature
   styleFunction = function(feature: any) {
@@ -1439,6 +1490,7 @@ useEffect(() => {
       'layer_kebakaran_hutan_2022',
       'layer_kebakaran_hutan_2023',
       'layer_kebakaran_hutan_2024',
+      'kawasan_hutan',
     ];
 
     // Jika ada layer yang sebelumnya di-hover, reset hanya layer tersebut
@@ -1498,8 +1550,9 @@ useEffect(() => {
               originalColor = colorMappingRef.current.kebakaran2023.get(String(layer.feature.properties.periode)) || '#808080';
             } else if (hoveredLayerType === 'layer_kebakaran_hutan_2024') {
               originalColor = colorMappingRef.current.kebakaran2024.get(String(layer.feature.properties.periode)) || '#808080';
+            } else if (hoveredLayerType === 'kawasan_hutan') {
+              originalColor = colorMappingRef.current.kawasanHutan.get(String(layer.feature.properties.fungsikws ?? '')) || '#808080';
             }
-            
             // Apply normal style with original color
             layer.setStyle({
               color: originalColor,
@@ -1565,6 +1618,8 @@ useEffect(() => {
               shouldHighlight = String(layer.feature.properties.periode) === hoveredLayerKey;
             } else if (hoveredLayerType === 'layer_kebakaran_hutan_2024') {
               shouldHighlight = String(layer.feature.properties.periode) === hoveredLayerKey;
+            } else if (hoveredLayerType === 'kawasan_hutan') {
+              shouldHighlight = String(layer.feature.properties.fungsikws ?? '') === hoveredLayerKey;
             }
 
             if (shouldHighlight) {
@@ -2920,6 +2975,7 @@ const checkLayerAvailability = async (bounds: [[number, number], [number, number
       if (tableName === 'layer_kebakaran_hutan_2022') setKebakaran2022Data([]);
       if (tableName === 'layer_kebakaran_hutan_2023') setKebakaran2023Data([]);
       if (tableName === 'layer_kebakaran_hutan_2024') setKebakaran2024Data([]);
+      if (tableName === 'kawasan_hutan') setKawasanHutanData([]);
     } else {
       console.log('Layer not found in layerGroupsRef or map not ready');
     }
@@ -3280,7 +3336,7 @@ useEffect(() => {
     'lahan_kritis', 'rawan_erosi', 'rawan_longsor', 'rawan_limpasan', 'rawan_karhutla',
     'bahaya_kekeringan', 'bahaya_abrasi_dan_gelombang_ekstrim', 'bahaya_banjir', 'bahaya_banjir_bandang',
     'dta_danau', 'rehabilitasi_das', 'rehabilitasi_hutan', 'restorasi_gambut', 'penerapan_teknik_kta',
-    'layer_kebakaran_hutan_2021', 'layer_kebakaran_hutan_2022', 'layer_kebakaran_hutan_2023', 'layer_kebakaran_hutan_2024'
+    'layer_kebakaran_hutan_2021', 'layer_kebakaran_hutan_2022', 'layer_kebakaran_hutan_2023', 'layer_kebakaran_hutan_2024', 'kawasan_hutan',
   ];
 
   useEffect(() => {
@@ -3311,6 +3367,7 @@ useEffect(() => {
       'kebakaran_2022': 'layer_kebakaran_hutan_2022',
       'kebakaran_2023': 'layer_kebakaran_hutan_2023',
       'kebakaran_2024': 'layer_kebakaran_hutan_2024',
+      'kawasan_hutan': 'kawasan_hutan',
     };
     
     // Sembunyikan semua layer yang punya bottom tab
@@ -3711,6 +3768,9 @@ useEffect(() => {
   }
   if (activeLayers.has('layer_kebakaran_hutan_2024')) {
     tabs.push({ id: 'kebakaran_2024', label: 'Kebakaran 2024', icon: '🔥' });
+  }
+  if (activeLayers.has('kawasan_hutan')) {
+    tabs.push({ id: 'kawasan_hutan', label: 'Kawasan Hutan', icon: '🌳' });
   }
   return tabs;
 }, [activeLayers, activeKejadianLayers]);
@@ -5052,6 +5112,53 @@ case 'rawan_karhutla':
   }
   break;
 
+  case 'kawasan_hutan':
+      if (activeLayers.has('kawasan_hutan') && kawasanHutanData.length > 0) {
+        return (
+          <div className="p-3 h-full flex flex-col">
+            <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white z-10">
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '50px' }}>No</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: '100px' }}>Warna Layer</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">Fungsi Kawasan Hutan</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {kawasanHutanData.map((item, idx) => (
+                    <tr
+                      key={idx}
+                      className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                      onMouseEnter={() => {
+                        setHoveredLayerKey(item.fungsikws);
+                        setHoveredLayerType('kawasan_hutan');
+                        setHoveredLayerColor(item.color || '#808080');
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredLayerKey(null);
+                        setHoveredLayerType(null);
+                        setHoveredLayerColor(null);
+                      }}
+                    >
+                      <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
+                      <td className="py-2 px-2">
+                        <div className="w-8 h-4 rounded border border-gray-300" style={{ backgroundColor: item.color }}></div>
+                      </td>
+                      <td className="py-2 px-2 text-gray-700 break-words">{item.deskripsi_domain || '-'}</td>
+                    </tr>
+                  ))}
+                  <tr><td colSpan={3} style={{ height: '80px' }}></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      } else if (activeLayers.has('kawasan_hutan')) {
+        return <div className="p-3 flex items-center justify-center h-full"><div className="text-center text-gray-500"><p className="text-sm">Tidak ada data kawasan hutan di area yang dipilih</p></div></div>;
+      }
+      break;
+
     default:
       return (
         <div className="flex items-center justify-center h-full">
@@ -5721,6 +5828,7 @@ case 'rawan_karhutla':
                 'kebakaran_2022': 'layer_kebakaran_hutan_2022',
                 'kebakaran_2023': 'layer_kebakaran_hutan_2023',
                 'kebakaran_2024': 'layer_kebakaran_hutan_2024',
+                'kawasan_hutan': 'kawasan_hutan',
               };
               return mapping[tabId] || '';
             };
