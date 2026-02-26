@@ -9091,7 +9091,7 @@ app.get('/api/tutupan-lahan/by-coordinates', async (req, res) => {
       LEFT JOIN mapping_penutupan_lahan mpl 
         ON tl.pl2024_id::text = mpl.kode_domain::text
       WHERE ST_Intersects(
-        tl.geom_valid,
+        tl.geom,
         ST_Buffer(
           ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
           1000
@@ -9185,7 +9185,7 @@ app.get('/api/das/geometry-by-name', async (req, res) => {
     const result = await pool.query(`
       SELECT 
         nama_das,
-        ST_AsGeoJSON(ST_Union(ST_Force2D(geom_valid)))::json as geom_valid
+        ST_AsGeoJSON(ST_Union(ST_Force2D(geom)))::json as geom
       FROM das_adm
       WHERE nama_das = $1
       GROUP BY nama_das
@@ -9201,7 +9201,7 @@ app.get('/api/das/geometry-by-name', async (req, res) => {
     res.json({
       success: true,
       dasName: result.rows[0].nama_das,
-      geom_valid: result.rows[0].geom_valid
+      geom: result.rows[0].geom
     });
     
   } catch (error) {
@@ -9229,10 +9229,10 @@ app.get('/api/das/geometry-by-coordinates', async (req, res) => {
     const query = `
       SELECT 
         nama_das,
-        ST_AsGeoJSON(ST_SetSRID(geom_valid, 4326))::json as geom_valid
+        ST_AsGeoJSON(ST_SetSRID(geom, 4326))::json as geom
       FROM das_adm
       WHERE ST_Intersects(
-        ST_SetSRID(geom_valid, 4326),
+        ST_SetSRID(geom, 4326),
         ST_Buffer(
           ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
           1
@@ -9249,7 +9249,7 @@ app.get('/api/das/geometry-by-coordinates', async (req, res) => {
       res.json({
         success: true,
         dasName: result.rows[0].nama_das,
-        geom_valid: result.rows[0].geom_valid
+        geom: result.rows[0].geom
       });
     } else {
       res.json({
@@ -9350,14 +9350,14 @@ app.get('/api/kerawanan/by-das', async (req, res) => {
             limpasan as tingkat,
             SUM(ST_Area(
               ST_Intersection(
-                ST_MakeValid(rl.geom_valid),
-                (SELECT ST_Union(ST_MakeValid(geom_valid)) FROM das_adm WHERE nama_das = $1)
+                ST_MakeValid(rl.geom),
+                (SELECT ST_Union(ST_MakeValid(geom)) FROM das_adm WHERE nama_das = $1)
               )::geography
             )) / 10000 as luas_total
           FROM rawan_limpasan rl
           WHERE ST_Intersects(
-            rl.geom_valid,
-            (SELECT ST_Union(geom_valid) FROM das_adm WHERE nama_das = $1)
+            rl.geom,
+            (SELECT ST_Union(geom) FROM das_adm WHERE nama_das = $1)
           )
           GROUP BY limpasan
           ORDER BY 
@@ -9380,8 +9380,8 @@ app.get('/api/kerawanan/by-das', async (req, res) => {
             SUM(luas_ha) as luas_total
           FROM rawan_karhutla rk
           WHERE ST_Intersects(
-            rk.geom_valid,
-            (SELECT ST_Union(geom_valid) FROM das_adm WHERE nama_das = $1)
+            rk.geom,
+            (SELECT ST_Union(geom) FROM das_adm WHERE nama_das = $1)
           )
           GROUP BY kelas
           ORDER BY 
@@ -9404,8 +9404,8 @@ app.get('/api/kerawanan/by-das', async (req, res) => {
             SUM(shape_area) as luas_total
           FROM rawan_longsor rl
           WHERE ST_Intersects(
-            rl.geom_valid,
-            (SELECT ST_Union(geom_valid) FROM das_adm WHERE nama_das = $1)
+            rl.geom,
+            (SELECT ST_Union(geom) FROM das_adm WHERE nama_das = $1)
           )
           GROUP BY unsur
           ORDER BY 
@@ -9439,8 +9439,8 @@ app.get('/api/kerawanan/by-das', async (req, res) => {
               n_a
             FROM rawan_erosi re
             WHERE ST_Intersects(
-              re.geom_valid,
-              (SELECT ST_Union(geom_valid) FROM das_adm WHERE nama_das = $1)
+              re.geom,
+              (SELECT ST_Union(geom) FROM das_adm WHERE nama_das = $1)
             )
           )
           SELECT 
@@ -9511,7 +9511,7 @@ app.get('/api/kerawanan/by-coordinates', async (req, res) => {
           SUM(${areaColumn}) as luas_total
         FROM ${tableName}
         WHERE ST_Intersects(
-          ST_SetSRID(geom_valid, 4326),
+          ST_SetSRID(geom, 4326),
           ST_Buffer(
             ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
             1000
@@ -9538,7 +9538,7 @@ app.get('/api/kerawanan/by-coordinates', async (req, res) => {
           SUM(${areaColumn}) as luas_total
         FROM ${tableName}
         WHERE ST_Intersects(
-          ST_SetSRID(geom_valid, 4326),
+          ST_SetSRID(geom, 4326),
           ST_Buffer(
             ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
             1000
@@ -9563,7 +9563,7 @@ app.get('/api/kerawanan/by-coordinates', async (req, res) => {
           SUM(n_a) as luas_total
         FROM ${tableName}
         WHERE ST_Intersects(
-          ST_SetSRID(geom_valid, 4326),
+          ST_SetSRID(geom, 4326),
           ST_Buffer(
             ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
             1000
@@ -9635,7 +9635,7 @@ app.get('/api/kerawanan/by-coordinates', async (req, res) => {
           SUM(shape_area) as luas_total
         FROM rawan_longsor
         WHERE ST_Intersects(
-          ST_SetSRID(geom_valid, 4326),
+          ST_SetSRID(geom, 4326),
           ST_Buffer(
             ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
             1000
@@ -9708,15 +9708,15 @@ app.get('/api/kerawanan/geojson', async (req, res) => {
             ST_AsGeoJSON(
               ${das ? `
                 ST_Intersection(
-                  ST_Force2D(geom_valid),
-                  (SELECT ST_Force2D(ST_Union(geom_valid)) FROM das_adm WHERE nama_das = $1)
+                  ST_Force2D(geom),
+                  (SELECT ST_Force2D(ST_Union(geom)) FROM das_adm WHERE nama_das = $1)
                 )
-              ` : 'geom_valid'}
+              ` : 'geom'}
             )::json as geometry
           FROM rawan_limpasan
           ${das ? `WHERE ST_Intersects(
-            ST_Force2D(geom_valid),
-            (SELECT ST_Force2D(ST_Union(geom_valid)) FROM das_adm WHERE nama_das = $1)
+            ST_Force2D(geom),
+            (SELECT ST_Force2D(ST_Union(geom)) FROM das_adm WHERE nama_das = $1)
           )` : ''}
         `,
         params: das ? [das] : []
@@ -9731,15 +9731,15 @@ app.get('/api/kerawanan/geojson', async (req, res) => {
             ST_AsGeoJSON(
               ${das ? `
                 ST_Intersection(
-                  ST_Force2D(geom_valid),
-                  (SELECT ST_Force2D(ST_Union(geom_valid)) FROM das_adm WHERE nama_das = $1)
+                  ST_Force2D(geom),
+                  (SELECT ST_Force2D(ST_Union(geom)) FROM das_adm WHERE nama_das = $1)
                 )
-              ` : 'geom_valid'}
+              ` : 'geom'}
             )::json as geometry
           FROM rawan_karhutla
           ${das ? `WHERE ST_Intersects(
-            ST_Force2D(geom_valid),
-            (SELECT ST_Force2D(ST_Union(geom_valid)) FROM das_adm WHERE nama_das = $1)
+            ST_Force2D(geom),
+            (SELECT ST_Force2D(ST_Union(geom)) FROM das_adm WHERE nama_das = $1)
           )` : ''}
         `,
         params: das ? [das] : []
@@ -9766,16 +9766,16 @@ app.get('/api/kerawanan/geojson', async (req, res) => {
             ST_AsGeoJSON(
               ${das ? `
                 ST_Intersection(
-                  ST_Force2D(geom_valid),
-                  (SELECT ST_Force2D(ST_Union(geom_valid)) FROM das_adm WHERE nama_das = $1)
+                  ST_Force2D(geom),
+                  (SELECT ST_Force2D(ST_Union(geom)) FROM das_adm WHERE nama_das = $1)
                 )
-              ` : 'geom_valid'}
+              ` : 'geom'}
             )::json as geometry
           FROM rawan_erosi
           WHERE kls_a IS NOT NULL AND kls_a != ''
           ${das ? `AND ST_Intersects(
-            ST_Force2D(geom_valid),
-            (SELECT ST_Force2D(ST_Union(geom_valid)) FROM das_adm WHERE nama_das = $1)
+            ST_Force2D(geom),
+            (SELECT ST_Force2D(ST_Union(geom)) FROM das_adm WHERE nama_das = $1)
           )` : ''}
         `,
         params: das ? [das] : []
@@ -9790,15 +9790,15 @@ app.get('/api/kerawanan/geojson', async (req, res) => {
             ST_AsGeoJSON(
               ${das ? `
                 ST_Intersection(
-                  ST_Force2D(geom_valid),
-                  (SELECT ST_Force2D(ST_Union(geom_valid)) FROM das_adm WHERE nama_das = $1)
+                  ST_Force2D(geom),
+                  (SELECT ST_Force2D(ST_Union(geom)) FROM das_adm WHERE nama_das = $1)
                 )
-              ` : 'geom_valid'}
+              ` : 'geom'}
             )::json as geometry
           FROM rawan_longsor
           ${das ? `WHERE ST_Intersects(
-            ST_Force2D(geom_valid),
-            (SELECT ST_Force2D(ST_Union(geom_valid)) FROM das_adm WHERE nama_das = $1)
+            ST_Force2D(geom),
+            (SELECT ST_Force2D(ST_Union(geom)) FROM das_adm WHERE nama_das = $1)
           )` : ''}
         `,
         params: das ? [das] : []
@@ -9925,7 +9925,7 @@ app.post('/api/kejadian/check-years-availability', async (req, res) => {
       const dasPlaceholders = dasFilter.map((_, i) => `$${paramIndex + i}`).join(',');
       query += ` AND ST_Intersects(
         ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
-        (SELECT ST_Union(geom_valid) FROM das_adm WHERE nama_das IN (${dasPlaceholders}))
+        (SELECT ST_Union(geom) FROM das_adm WHERE nama_das IN (${dasPlaceholders}))
       )`;
       params.push(...dasFilter);
       paramIndex += dasFilter.length;
@@ -9962,7 +9962,7 @@ app.post('/api/kejadian/check-years-availability', async (req, res) => {
       const adminPlaceholders = adminFilter.map((_, i) => `$${paramIndex + i}`).join(',');
       query += ` AND ST_Intersects(
         ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
-        (SELECT ST_Union(geom_valid) FROM ${adminTable} WHERE ${adminColumn} IN (${adminPlaceholders}))
+        (SELECT ST_Union(geom) FROM ${adminTable} WHERE ${adminColumn} IN (${adminPlaceholders}))
       )`;
       params.push(...adminFilter);
       paramIndex += adminFilter.length;
@@ -10064,7 +10064,7 @@ app.get('/api/kejadian/photos', async (req, res) => {
           const dasPlaceholders = dasArray.map((_, i) => `$${paramIndex + i}`).join(',');
           query += ` AND ST_Intersects(
             ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
-            (SELECT ST_Union(geom_valid) FROM das_adm WHERE nama_das IN (${dasPlaceholders}))
+            (SELECT ST_Union(geom) FROM das_adm WHERE nama_das IN (${dasPlaceholders}))
           )`;
           params.push(...dasArray);
           paramIndex += dasArray.length;
@@ -10108,7 +10108,7 @@ app.get('/api/kejadian/photos', async (req, res) => {
           const adminPlaceholders = adminArray.map((_, i) => `$${paramIndex + i}`).join(',');
           query += ` AND ST_Intersects(
             ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
-            (SELECT ST_Union(geom_valid) FROM ${adminTable} WHERE ${adminColumn} IN (${adminPlaceholders}))
+            (SELECT ST_Union(geom) FROM ${adminTable} WHERE ${adminColumn} IN (${adminPlaceholders}))
           )`;
           params.push(...adminArray);
           paramIndex += adminArray.length;
@@ -10252,7 +10252,7 @@ app.get('/api/kejadian/by-year/:year', async (req, res) => {
           
           whereClause += ` AND ST_Intersects(
             ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
-            (SELECT ST_Union(geom_valid) FROM das_adm WHERE nama_das IN (${dasPlaceholders}))
+            (SELECT ST_Union(geom) FROM das_adm WHERE nama_das IN (${dasPlaceholders}))
           )`;
           
           params.push(...dasArray);
@@ -10300,7 +10300,7 @@ app.get('/api/kejadian/by-year/:year', async (req, res) => {
           
           whereClause += ` AND ST_Intersects(
             ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
-            (SELECT ST_Union(geom_valid) FROM ${adminTable} WHERE ${adminColumn} IN (${adminPlaceholders}))
+            (SELECT ST_Union(geom) FROM ${adminTable} WHERE ${adminColumn} IN (${adminPlaceholders}))
           )`;
           
           params.push(...adminArray);
@@ -11936,7 +11936,7 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
       SELECT column_name
       FROM information_schema.columns
       WHERE table_name = $1
-        AND column_name NOT IN ('geom_valid','geom_valid')
+        AND column_name NOT IN ('geom','geom_valid')
       ORDER BY ordinal_position
     `, [tableName]);
 
@@ -12181,28 +12181,28 @@ app.get('/api/penutupan-lahan-2024-by-das', async (req, res) => {
       SELECT 
         nama_das,
         CASE 
-          WHEN ST_SRID(geom_valid) = 0 OR ST_SRID(geom_valid) IS NULL THEN
+          WHEN ST_SRID(geom) = 0 OR ST_SRID(geom) IS NULL THEN
             ST_Distance(
-              ST_Transform(ST_SetSRID(geom_valid, 4326), 4326)::geography,
+              ST_Transform(ST_SetSRID(geom, 4326), 4326)::geography,
               ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
             )
           ELSE
             ST_Distance(
-              geom_valid::geography,
+              geom::geography,
               ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
             )
         END as distance
       FROM das_adm
       WHERE 
         CASE 
-          WHEN ST_SRID(geom_valid) = 0 OR ST_SRID(geom_valid) IS NULL THEN
+          WHEN ST_SRID(geom) = 0 OR ST_SRID(geom) IS NULL THEN
             ST_Contains(
-              ST_SetSRID(geom_valid, 4326),
+              ST_SetSRID(geom, 4326),
               ST_SetSRID(ST_MakePoint($1, $2), 4326)
             )
           ELSE
             ST_Contains(
-              geom_valid,
+              geom,
               ST_SetSRID(ST_MakePoint($1, $2), 4326)
             )
         END
@@ -12224,14 +12224,14 @@ app.get('/api/penutupan-lahan-2024-by-das', async (req, res) => {
         SELECT 
           nama_das,
           CASE 
-            WHEN ST_SRID(geom_valid) = 0 OR ST_SRID(geom_valid) IS NULL THEN
+            WHEN ST_SRID(geom) = 0 OR ST_SRID(geom) IS NULL THEN
               ST_Distance(
-                ST_Transform(ST_SetSRID(geom_valid, 4326), 4326)::geography,
+                ST_Transform(ST_SetSRID(geom, 4326), 4326)::geography,
                 ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
               )
             ELSE
               ST_Distance(
-                geom_valid::geography,
+                geom::geography,
                 ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
               )
           END as distance
@@ -12316,7 +12316,7 @@ app.get('/api/areas/search', async (req, res) => {
           label: row.provinsi,
           provinsi: row.provinsi,
           level: 'provinsi',
-          geom_valid: row.geom_json ? JSON.parse(row.geom_json) : null
+          geom: row.geom_json ? JSON.parse(row.geom_json) : null
         })));
       
       case 'kabupaten':
@@ -12343,7 +12343,7 @@ app.get('/api/areas/search', async (req, res) => {
           kab_kota: row.kab_kota,
           provinsi: row.provinsi,
           level: 'kabupaten',
-          geom_valid: row.geom_json ? JSON.parse(row.geom_json) : null
+          geom: row.geom_json ? JSON.parse(row.geom_json) : null
         })));
       
       case 'kecamatan':
@@ -12372,7 +12372,7 @@ app.get('/api/areas/search', async (req, res) => {
           kab_kota: row.kab_kota,
           provinsi: row.provinsi,
           level: 'kecamatan',
-          geom_valid: row.geom_json ? JSON.parse(row.geom_json) : null
+          geom: row.geom_json ? JSON.parse(row.geom_json) : null
         })));
       
       case 'kelurahan':
@@ -12403,7 +12403,7 @@ app.get('/api/areas/search', async (req, res) => {
           kab_kota: row.kab_kota,
           provinsi: row.provinsi,
           level: 'kelurahan',
-          geom_valid: row.geom_json ? JSON.parse(row.geom_json) : null
+          geom: row.geom_json ? JSON.parse(row.geom_json) : null
         })));
       
       default:
@@ -12649,7 +12649,7 @@ app.get('/api/das/search', async (req, res) => {
     const result = await client.query(`
       SELECT 
         nama_das,
-        ST_AsGeoJSON(ST_SetSRID(ST_Union(geom_valid), 4326)) as geom_json
+        ST_AsGeoJSON(ST_SetSRID(ST_Union(geom), 4326)) as geom_json
       FROM das_adm
       WHERE LOWER(nama_das) LIKE $1
       GROUP BY nama_das
@@ -12660,7 +12660,7 @@ app.get('/api/das/search', async (req, res) => {
     const dasResults = result.rows.map(row => ({
       label: row.nama_das,
       nama_das: row.nama_das,
-      geom_valid: row.geom_json ? JSON.parse(row.geom_json) : null
+      geom: row.geom_json ? JSON.parse(row.geom_json) : null
     }));
     
     console.log(`Returning ${dasResults.length} DAS results with geom (unioned)`);
@@ -12743,7 +12743,7 @@ app.get('/api/tutupan-lahan/data', async (req, res) => {
     if (bounds) {
       const [minLat, minLng, maxLat, maxLng] = bounds.split(',').map(Number);
       conditions.push(`ST_Intersects(
-        tl.geom_valid,
+        tl.geom,
         ST_MakeEnvelope($${paramIndex}, $${paramIndex+1}, $${paramIndex+2}, $${paramIndex+3}, 4326)
       )`);
       params.push(minLng, minLat, maxLng, maxLat);
@@ -12812,7 +12812,7 @@ app.get('/api/penutupan-lahan-2024/data', async (req, res) => {
     if (bounds) {
       const [minLat, minLng, maxLat, maxLng] = bounds.split(',').map(Number);
       conditions.push(`ST_Intersects(
-        tl.geom_valid,
+        tl.geom,
         ST_MakeEnvelope($${paramIndex}, $${paramIndex+1}, $${paramIndex+2}, $${paramIndex+3}, 4326)
       )`);
       params.push(minLng, minLat, maxLng, maxLat);
@@ -12881,7 +12881,7 @@ app.get('/api/pl-2024/data', async (req, res) => {
     if (bounds) {
       const [minLat, minLng, maxLat, maxLng] = bounds.split(',').map(Number);
       conditions.push(`ST_Intersects(
-        tl.geom_valid,
+        tl.geom,
         ST_MakeEnvelope($${paramIndex}, $${paramIndex+1}, $${paramIndex+2}, $${paramIndex+3}, 4326)
       )`);
       params.push(minLng, minLat, maxLng, maxLat);
@@ -12950,7 +12950,7 @@ app.get('/api/geologi/data', async (req, res) => {
     if (bounds) {
       const [minLat, minLng, maxLat, maxLng] = bounds.split(',').map(Number);
       conditions.push(`ST_Intersects(
-        g.geom_valid,
+        g.geom,
         ST_MakeEnvelope($${paramIndex}, $${paramIndex+1}, $${paramIndex+2}, $${paramIndex+3}, 4326)
       )`);
       params.push(minLng, minLat, maxLng, maxLat);
