@@ -12590,8 +12590,8 @@ app.post('/api/layers/check-availability', async (req, res) => {
           countQuery = `
             SELECT COUNT(*) as count
             FROM ${layer.table_name}
-            WHERE geom IS NOT NULL 
-            AND ST_Intersects(geom, ST_GeomFromText($1, 4326))
+            WHERE geom_valid IS NOT NULL 
+            AND ST_Intersects(geom_valid, ST_GeomFromText($1, 4326))
             AND nama_das IN (${dasPlaceholders})
             LIMIT 1
           `;
@@ -12601,8 +12601,8 @@ app.post('/api/layers/check-availability', async (req, res) => {
           countQuery = `
             SELECT COUNT(*) as count
             FROM ${layer.table_name}
-            WHERE geom IS NOT NULL 
-            AND ST_Intersects(geom, ST_GeomFromText($1, 4326))
+            WHERE geom_valid IS NOT NULL 
+            AND ST_Intersects(geom_valid, ST_GeomFromText($1, 4326))
             LIMIT 1
           `;
           queryParams = [boundsWKT];
