@@ -1076,23 +1076,35 @@ const loadLayerInBounds = async (tableName: string, customBounds?: [[number, num
         '100251': 'Taman Wisata Alam/Hutan Wisata (Perairan)',
       };
       const kawasanColorMap = new Map<string, string>();
-      const uniqueMap = new Map<string, string>(); // fungsikws -> deskripsi_domain
+      // Group by deskripsi_domain agar 100300 dan 100400 dijadikan satu
+      const deskripsiMap = new Map<string, string>(); // deskripsi_domain -> color (via getRandomColor per deskripsi)
+      const fungsikwsToDescrip = new Map<string, string>(); // fungsikws -> deskripsi_domain
       geojsonData.features.forEach((feature: any) => {
         const fungsikws = String(feature.properties.fungsikws ?? '');
-        if (fungsikws && !uniqueMap.has(fungsikws)) {
+        if (fungsikws) {
           const deskripsi = mappingKawasanHutan[fungsikws] || `Kode ${fungsikws}`;
-          uniqueMap.set(fungsikws, deskripsi);
+          fungsikwsToDescrip.set(fungsikws, deskripsi);
+          if (!deskripsiMap.has(deskripsi)) {
+            deskripsiMap.set(deskripsi, getRandomColor(deskripsi, kawasanColorMap));
+          }
         }
       });
-      const arr = Array.from(uniqueMap.entries()).map(([fungsikws, deskripsi_domain]) => {
-        const color = getRandomColor(fungsikws, kawasanColorMap);
-        return { fungsikws, deskripsi_domain, color };
+      // Build arr: satu baris per deskripsi_domain unik
+      const seenDeskripsi = new Set<string>();
+      const arr: Array<{fungsikws: string; deskripsi_domain: string; color?: string}> = [];
+      // Kumpulkan semua fungsikws unik, lalu filter per deskripsi unik
+      Array.from(fungsikwsToDescrip.entries()).forEach(([fungsikws, deskripsi]) => {
+        if (!seenDeskripsi.has(deskripsi)) {
+          seenDeskripsi.add(deskripsi);
+          const color = deskripsiMap.get(deskripsi)!;
+          arr.push({ fungsikws, deskripsi_domain: deskripsi, color });
+        }
+        // Simpan mapping warna untuk SEMUA fungsikws yang sama deskripsinya (untuk highlight)
+        const color = deskripsiMap.get(deskripsi)!;
+        colorMap.set(fungsikws, color);
+        colorMappingRef.current.kawasanHutan.set(fungsikws, color);
       });
       setKawasanHutanData(arr);
-      arr.forEach(item => {
-        colorMap.set(item.fungsikws, item.color!);
-        colorMappingRef.current.kawasanHutan.set(item.fungsikws, item.color!);
-      });
     }
     
     // Styling function
