@@ -1051,11 +1051,13 @@ const loadLayerInBounds = async (tableName: string, customBounds?: [[number, num
       });
     } else if (tableName === 'kawasan_hutan') {
       const mappingKawasanHutan: Record<string, string> = {
-        '000000': 'Belum terdefinisi',
+        '0': 'Tidak Terdefinisi',
+        '000000': 'Tidak Terdefinisi',
         '100000': 'Kawasan Suaka Alam/Kawasan Pelestarian Alam',
         '100100': 'Hutan Lindung',
         '100200': 'Hutan (Kawasan) Suaka Alam/Wisata',
         '100300': 'Hutan Produksi Tetap',
+        '100400': 'Hutan Produksi Tetap',
         '100500': 'Hutan Produksi yang dapat di Konversi',
         '100600': 'Hutan Negara Bebas',
         '100700': 'Areal Penggunaan Lain',
