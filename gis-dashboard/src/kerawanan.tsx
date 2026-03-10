@@ -982,7 +982,7 @@ const loadLayerInBounds = async (tableName: string, customBounds?: [[number, num
       });
       setPenerapanTeknikKtaData(Array.from(uniqueMap.values()));
 
-    } else if (tableName === 'layer_kebakaran_hutan_2021') {
+    } else if (tableName === 'karhutla_2021') {
       const periodeColorMap = new Map<string, string>();
       const uniquePeriode = new Set<string>();
       geojsonData.features.forEach((feature: any) => {
@@ -999,7 +999,7 @@ const loadLayerInBounds = async (tableName: string, customBounds?: [[number, num
         colorMappingRef.current.kebakaran2021.set(item.periode, item.color!);
       });
 
-    } else if (tableName === 'layer_kebakaran_hutan_2022') {
+    } else if (tableName === 'karhutla_2022') {
       const periodeMap = new Map<string, number>();
       const periodeColorMap = new Map<string, string>();
       geojsonData.features.forEach((feature: any) => {
@@ -1016,7 +1016,7 @@ const loadLayerInBounds = async (tableName: string, customBounds?: [[number, num
         colorMappingRef.current.kebakaran2022.set(item.periode, item.color!);
       });
 
-    } else if (tableName === 'layer_kebakaran_hutan_2023') {
+    } else if (tableName === 'karhutla_2023') {
       const periodeColorMap = new Map<string, string>();
       const uniquePeriode = new Set<string>();
       geojsonData.features.forEach((feature: any) => {
@@ -1033,7 +1033,7 @@ const loadLayerInBounds = async (tableName: string, customBounds?: [[number, num
         colorMappingRef.current.kebakaran2023.set(item.periode, item.color!);
       });
 
-    } else if (tableName === 'layer_kebakaran_hutan_2024') {
+    } else if (tableName === 'karhutla_2024') {
       const periodeMap = new Map<string, number>();
       const periodeColorMap = new Map<string, string>();
       geojsonData.features.forEach((feature: any) => {
@@ -1271,7 +1271,7 @@ const loadLayerInBounds = async (tableName: string, customBounds?: [[number, num
         const fillColor = colorMap.get(jenis_tana) || '#808080';
         return { color: fillColor, fillColor, weight: 1, opacity: 0.8, fillOpacity: 0.5 };
       };
-    } else if (['layer_kebakaran_hutan_2021', 'layer_kebakaran_hutan_2022', 'layer_kebakaran_hutan_2023', 'layer_kebakaran_hutan_2024'].includes(tableName)) {
+    } else if (['karhutla_2021', 'karhutla_2022', 'karhutla_2023', 'karhutla_2024'].includes(tableName)) {
       styleFunction = function(feature: any) {
         const periode = String(feature.properties.periode || '');
         const fillColor = colorMap.get(periode) || '#808080';
@@ -1500,10 +1500,10 @@ useEffect(() => {
       'dta_danau',
       'rehabilitasi_das',
       'rehabilitasi_hutan',
-      'layer_kebakaran_hutan_2021',
-      'layer_kebakaran_hutan_2022',
-      'layer_kebakaran_hutan_2023',
-      'layer_kebakaran_hutan_2024',
+      'karhutla_2021',
+      'karhutla_2022',
+      'karhutla_2023',
+      'karhutla_2024',
       'kawasan_hutan',
     ];
 
@@ -1556,13 +1556,13 @@ useEffect(() => {
               originalColor = colorMappingRef.current.rehabilitasiDas.get(layer.feature.properties.bpdas) || '#808080';
             } else if (hoveredLayerType === 'rehabilitasi_hutan') {
               originalColor = colorMappingRef.current.rehabilitasiHutan.get(String(layer.feature.properties.jenis_tana)) || '#808080';
-            } else if (hoveredLayerType === 'layer_kebakaran_hutan_2021') {
+            } else if (hoveredLayerType === 'karhutla_2021') {
               originalColor = colorMappingRef.current.kebakaran2021.get(String(layer.feature.properties.periode)) || '#808080';
-            } else if (hoveredLayerType === 'layer_kebakaran_hutan_2022') {
+            } else if (hoveredLayerType === 'karhutla_2022') {
               originalColor = colorMappingRef.current.kebakaran2022.get(String(layer.feature.properties.periode)) || '#808080';
-            } else if (hoveredLayerType === 'layer_kebakaran_hutan_2023') {
+            } else if (hoveredLayerType === 'karhutla_2023') {
               originalColor = colorMappingRef.current.kebakaran2023.get(String(layer.feature.properties.periode)) || '#808080';
-            } else if (hoveredLayerType === 'layer_kebakaran_hutan_2024') {
+            } else if (hoveredLayerType === 'karhutla_2024') {
               originalColor = colorMappingRef.current.kebakaran2024.get(String(layer.feature.properties.periode)) || '#808080';
             } else if (hoveredLayerType === 'kawasan_hutan') {
               originalColor = colorMappingRef.current.kawasanHutan.get(String(layer.feature.properties.fungsikws ?? '')) || '#808080';
@@ -1624,13 +1624,13 @@ useEffect(() => {
               shouldHighlight = layer.feature.properties.bpdas === hoveredLayerKey;
             } else if (hoveredLayerType === 'rehabilitasi_hutan') {
               shouldHighlight = String(layer.feature.properties.jenis_tana) === hoveredLayerKey;
-            } else if (hoveredLayerType === 'layer_kebakaran_hutan_2021') {
+            } else if (hoveredLayerType === 'karhutla_2021') {
               shouldHighlight = String(layer.feature.properties.periode) === hoveredLayerKey;
-            } else if (hoveredLayerType === 'layer_kebakaran_hutan_2022') {
+            } else if (hoveredLayerType === 'karhutla_2022') {
               shouldHighlight = String(layer.feature.properties.periode) === hoveredLayerKey;
-            } else if (hoveredLayerType === 'layer_kebakaran_hutan_2023') {
+            } else if (hoveredLayerType === 'karhutla_2023') {
               shouldHighlight = String(layer.feature.properties.periode) === hoveredLayerKey;
-            } else if (hoveredLayerType === 'layer_kebakaran_hutan_2024') {
+            } else if (hoveredLayerType === 'karhutla_2024') {
               shouldHighlight = String(layer.feature.properties.periode) === hoveredLayerKey;
             } else if (hoveredLayerType === 'kawasan_hutan') {
               shouldHighlight = String(layer.feature.properties.fungsikws ?? '') === hoveredLayerKey;
@@ -2985,10 +2985,10 @@ const checkLayerAvailability = async (bounds: [[number, number], [number, number
       if (tableName === 'rehabilitasi_hutan') setRehabilitasiHutanData([]);
       if (tableName === 'restorasi_gambut') setRestorasiGambutData([]);
       if (tableName === 'penerapan_teknik_kta') setPenerapanTeknikKtaData([]);
-      if (tableName === 'layer_kebakaran_hutan_2021') setKebakaran2021Data([]);
-      if (tableName === 'layer_kebakaran_hutan_2022') setKebakaran2022Data([]);
-      if (tableName === 'layer_kebakaran_hutan_2023') setKebakaran2023Data([]);
-      if (tableName === 'layer_kebakaran_hutan_2024') setKebakaran2024Data([]);
+      if (tableName === 'karhutla_2021') setKebakaran2021Data([]);
+      if (tableName === 'karhutla_2022') setKebakaran2022Data([]);
+      if (tableName === 'karhutla_2023') setKebakaran2023Data([]);
+      if (tableName === 'karhutla_2024') setKebakaran2024Data([]);
       if (tableName === 'kawasan_hutan') setKawasanHutanData([]);
     } else {
       console.log('Layer not found in layerGroupsRef or map not ready');
@@ -3350,7 +3350,7 @@ useEffect(() => {
     'lahan_kritis', 'rawan_erosi', 'rawan_longsor', 'rawan_limpasan', 'rawan_karhutla',
     'bahaya_kekeringan', 'bahaya_abrasi_dan_gelombang_ekstrim', 'bahaya_banjir', 'bahaya_banjir_bandang',
     'dta_danau', 'rehabilitasi_das', 'rehabilitasi_hutan', 'restorasi_gambut', 'penerapan_teknik_kta',
-    'layer_kebakaran_hutan_2021', 'layer_kebakaran_hutan_2022', 'layer_kebakaran_hutan_2023', 'layer_kebakaran_hutan_2024', 'kawasan_hutan',
+    'karhutla_2021', 'karhutla_2022', 'karhutla_2023', 'karhutla_2024', 'kawasan_hutan',
   ];
 
   useEffect(() => {
@@ -3377,10 +3377,10 @@ useEffect(() => {
       'rehabilitasi_hutan': 'rehabilitasi_hutan',
       'restorasi_gambut': 'restorasi_gambut',
       'penerapan_teknik_kta': 'penerapan_teknik_kta',
-      'kebakaran_2021': 'layer_kebakaran_hutan_2021',
-      'kebakaran_2022': 'layer_kebakaran_hutan_2022',
-      'kebakaran_2023': 'layer_kebakaran_hutan_2023',
-      'kebakaran_2024': 'layer_kebakaran_hutan_2024',
+      'kebakaran_2021': 'karhutla_2021',
+      'kebakaran_2022': 'karhutla_2022',
+      'kebakaran_2023': 'karhutla_2023',
+      'kebakaran_2024': 'karhutla_2024',
       'kawasan_hutan': 'kawasan_hutan',
     };
     
@@ -3700,7 +3700,7 @@ useEffect(() => {
   );
 
   if (hasAutoKejadian) {
-    tabs.push({ id: 'listings', label: 'Listings', icon: '📋' });
+    tabs.push({ id: 'listings', label: 'Historis Bencana', icon: '📋' });
   }
 
   // Hanya tambahkan tab untuk layer-layer yang punya data bottom tabs
@@ -3771,16 +3771,16 @@ useEffect(() => {
   if (activeLayers.has('penerapan_teknik_kta')) {
     tabs.push({ id: 'penerapan_teknik_kta', label: 'Teknik KTA', icon: '🏔️' });
   }
-  if (activeLayers.has('layer_kebakaran_hutan_2021')) {
+  if (activeLayers.has('karhutla_2021')) {
     tabs.push({ id: 'kebakaran_2021', label: 'Kebakaran 2021', icon: '🔥' });
   }
-  if (activeLayers.has('layer_kebakaran_hutan_2022')) {
+  if (activeLayers.has('karhutla_2022')) {
     tabs.push({ id: 'kebakaran_2022', label: 'Kebakaran 2022', icon: '🔥' });
   }
-  if (activeLayers.has('layer_kebakaran_hutan_2023')) {
+  if (activeLayers.has('karhutla_2023')) {
     tabs.push({ id: 'kebakaran_2023', label: 'Kebakaran 2023', icon: '🔥' });
   }
-  if (activeLayers.has('layer_kebakaran_hutan_2024')) {
+  if (activeLayers.has('karhutla_2024')) {
     tabs.push({ id: 'kebakaran_2024', label: 'Kebakaran 2024', icon: '🔥' });
   }
   if (activeLayers.has('kawasan_hutan')) {
@@ -4881,7 +4881,7 @@ case 'bahaya_kekeringan':
       break;
 
     case 'kebakaran_2021':
-      if (activeLayers.has('layer_kebakaran_hutan_2021') && kebakaran2021Data.length > 0) {
+      if (activeLayers.has('karhutla_2021') && kebakaran2021Data.length > 0) {
         return (
           <div className="p-3 h-full flex flex-col">
             <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
@@ -4900,7 +4900,7 @@ case 'bahaya_kekeringan':
                       className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
                       onMouseEnter={() => {
                         setHoveredLayerKey(item.periode);
-                        setHoveredLayerType('layer_kebakaran_hutan_2021');
+                        setHoveredLayerType('karhutla_2021');
                         setHoveredLayerColor(item.color || '#808080');
                       }}
                       onMouseLeave={() => {
@@ -4920,13 +4920,13 @@ case 'bahaya_kekeringan':
             </div>
           </div>
         );
-      } else if (activeLayers.has('layer_kebakaran_hutan_2021')) {
+      } else if (activeLayers.has('karhutla_2021')) {
         return <div className="p-3 flex items-center justify-center h-full"><div className="text-center text-gray-500"><p className="text-sm">Tidak ada data kebakaran hutan 2021 di area yang dipilih</p></div></div>;
       }
       break;
 
     case 'kebakaran_2022':
-      if (activeLayers.has('layer_kebakaran_hutan_2022') && kebakaran2022Data.length > 0) {
+      if (activeLayers.has('karhutla_2022') && kebakaran2022Data.length > 0) {
         return (
           <div className="p-3 h-full flex flex-col">
             <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
@@ -4946,7 +4946,7 @@ case 'bahaya_kekeringan':
                       className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
                       onMouseEnter={() => {
                         setHoveredLayerKey(item.periode);
-                        setHoveredLayerType('layer_kebakaran_hutan_2022');
+                        setHoveredLayerType('karhutla_2022');
                         setHoveredLayerColor(item.color || '#808080');
                       }}
                       onMouseLeave={() => {
@@ -4967,13 +4967,13 @@ case 'bahaya_kekeringan':
             </div>
           </div>
         );
-      } else if (activeLayers.has('layer_kebakaran_hutan_2022')) {
+      } else if (activeLayers.has('karhutla_2022')) {
         return <div className="p-3 flex items-center justify-center h-full"><div className="text-center text-gray-500"><p className="text-sm">Tidak ada data kebakaran hutan 2022 di area yang dipilih</p></div></div>;
       }
       break;
 
     case 'kebakaran_2023':
-      if (activeLayers.has('layer_kebakaran_hutan_2023') && kebakaran2023Data.length > 0) {
+      if (activeLayers.has('karhutla_2023') && kebakaran2023Data.length > 0) {
         return (
           <div className="p-3 h-full flex flex-col">
             <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
@@ -4992,7 +4992,7 @@ case 'bahaya_kekeringan':
                       className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
                       onMouseEnter={() => {
                         setHoveredLayerKey(item.periode);
-                        setHoveredLayerType('layer_kebakaran_hutan_2023');
+                        setHoveredLayerType('karhutla_2023');
                         setHoveredLayerColor(item.color || '#808080');
                       }}
                       onMouseLeave={() => {
@@ -5012,13 +5012,13 @@ case 'bahaya_kekeringan':
             </div>
           </div>
         );
-      } else if (activeLayers.has('layer_kebakaran_hutan_2023')) {
+      } else if (activeLayers.has('karhutla_2023')) {
         return <div className="p-3 flex items-center justify-center h-full"><div className="text-center text-gray-500"><p className="text-sm">Tidak ada data kebakaran hutan 2023 di area yang dipilih</p></div></div>;
       }
       break;
 
     case 'kebakaran_2024':
-      if (activeLayers.has('layer_kebakaran_hutan_2024') && kebakaran2024Data.length > 0) {
+      if (activeLayers.has('karhutla_2024') && kebakaran2024Data.length > 0) {
         return (
           <div className="p-3 h-full flex flex-col">
             <div className="overflow-auto flex-1" style={{ maxHeight: 'calc(35vh - 100px)' }}>
@@ -5038,7 +5038,7 @@ case 'bahaya_kekeringan':
                       className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
                       onMouseEnter={() => {
                         setHoveredLayerKey(item.periode);
-                        setHoveredLayerType('layer_kebakaran_hutan_2024');
+                        setHoveredLayerType('karhutla_2024');
                         setHoveredLayerColor(item.color || '#808080');
                       }}
                       onMouseLeave={() => {
@@ -5059,7 +5059,7 @@ case 'bahaya_kekeringan':
             </div>
           </div>
         );
-      } else if (activeLayers.has('layer_kebakaran_hutan_2024')) {
+      } else if (activeLayers.has('karhutla_2024')) {
         return <div className="p-3 flex items-center justify-center h-full"><div className="text-center text-gray-500"><p className="text-sm">Tidak ada data kebakaran hutan 2024 di area yang dipilih</p></div></div>;
       }
       break;
@@ -5838,10 +5838,10 @@ case 'rawan_karhutla':
                 'rehabilitasi_hutan': 'rehabilitasi_hutan',
                 'restorasi_gambut': 'restorasi_gambut',
                 'penerapan_teknik_kta': 'penerapan_teknik_kta',
-                'kebakaran_2021': 'layer_kebakaran_hutan_2021',
-                'kebakaran_2022': 'layer_kebakaran_hutan_2022',
-                'kebakaran_2023': 'layer_kebakaran_hutan_2023',
-                'kebakaran_2024': 'layer_kebakaran_hutan_2024',
+                'kebakaran_2021': 'karhutla_2021',
+                'kebakaran_2022': 'karhutla_2022',
+                'kebakaran_2023': 'karhutla_2023',
+                'kebakaran_2024': 'karhutla_2024',
                 'kawasan_hutan': 'kawasan_hutan',
               };
               return mapping[tabId] || '';
