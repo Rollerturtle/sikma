@@ -11979,8 +11979,11 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
       hasBoundary = true;
 
       boundaryJoin = `
-        JOIN das_adm b
-          ON b.nama_das IN (${ph})
+        JOIN (
+          SELECT ST_Union(geom_valid) AS geom_valid
+          FROM das_adm
+          WHERE nama_das IN (${ph})
+        ) b ON true
       `;
 
       whereSpatial += `
