@@ -12828,7 +12828,10 @@ app.get('/api/penutupan-lahan-2024/data', async (req, res) => {
         const dasArray = JSON.parse(dasFilter);
         if (dasArray && dasArray.length > 0) {
           const dasPlaceholders = dasArray.map((_, i) => `$${paramIndex + i}`).join(',');
-          conditions.push(`tl.nama_das IN (${dasPlaceholders})`);
+          conditions.push(`ST_Intersects(
+            tl.geom,
+            (SELECT ST_Union(geom_valid) FROM das_adm WHERE nama_das IN (${dasPlaceholders}))
+          )`);
           params.push(...dasArray);
           paramIndex += dasArray.length;
         }
