@@ -11943,18 +11943,34 @@ app.get('/api/layers/:tableName/geojson', async (req, res) => {
     let propsSelect;
     let needsMapping = false;
 
+    const infraColsWhitelist = {
+      bendung: ['nama_infra','kondisi_ba','teknis_kon','kelurahan','kecamatan','kabkot_nam','prov_name','daerah_ali','latitude','longitude'],
+      bendungan: ['nama_infra','kondisi_ba','kelurahan','kecamatan','kabkot_nam','prov_name','daerah_ali','latitude','longitude'],
+      danau: ['nama_aset','kelurahan','kecamatan','kabkot_nam','prov_name','daerah_ali','latitude','longitude'],
+      embung: ['nama_infra','kondisi_ba','teknis_sum','kelurahan','kecamatan','kabkot_nam','prov_name','daerah_ali','latitude','longitude'],
+      situ: ['nama_aset','kelurahan','kecamatan','kabkot_nam','prov_name','daerah_ali','latitude','longitude'],
+      pengaman_pantai: ['nama_infra','kondisi_ba','teknis_kon','kelurahan','kecamatan','kabkot_nam','provinsi','daerah_ali','latitude_a','longitude_'],
+      pengendali_sedimen: ['nama_infra','kondisi_ba','teknis_kon','kelurahan','kecamatan','kabkot_nam','prov_name','daerah_ali','latitude','longitude'],
+      pompa_air: ['nama_infra','kondisi_ba','teknis_kon','kelurahan','kecamatan','kabkot_nam','prov_name','daerah_ali','latitude','longitude'],
+    };
+
+    const availableColNames = cols.rows.map(r => r.column_name);
+    let selectedCols;
+
+    if (infraColsWhitelist[tableName]) {
+      selectedCols = infraColsWhitelist[tableName].filter(c => availableColNames.includes(c));
+    } else {
+      selectedCols = availableColNames.slice(0, 48);
+    }
+
     if (tableName === 'tutupan_lahan' || tableName === 'penutupan_lahan_2024' || tableName === 'pl2024') {
       needsMapping = true;
       propsSelect = `'deskripsi_domain', COALESCE(m.deskripsi_domain, '')`;
-      if (cols.rows.length) {
-        propsSelect += ',' + cols.rows
-          .map(r => `'${r.column_name}', l.${r.column_name}`)
-          .join(',');
+      if (selectedCols.length) {
+        propsSelect += ',' + selectedCols.map(c => `'${c}', l.${c}`).join(',');
       }
     } else {
-      propsSelect = cols.rows
-        .map(r => `'${r.column_name}', l.${r.column_name}`)
-        .join(',');
+      propsSelect = selectedCols.map(c => `'${c}', l.${c}`).join(',');
     }
 
     /* ================= FROM & JOIN ================= */
@@ -13001,6 +13017,90 @@ app.get('/api/geologi/data', async (req, res) => {
       success: false, 
       error: error.message 
     });
+  }
+});
+
+const risikoTables = ['risiko_banjir', 'risiko_banjir_bandang', 'risiko_kekeringan', 'risiko_abrasi', 'risiko_longsor', 'risiko_karhutla'];
+risikoTables.forEach(tableName => {
+  app.get(`/api/${tableName}/data`, async (req, res) => {
+    try {
+      const { bounds, dasFilter } = req.query;
+      let query = `SELECT kelas, SUM(shape_leng) as luas_total FROM ${tableName}`;
+      const conditions = [];
+      const params = [];
+      let paramIndex = 1;
+
+      if (bounds) {
+        const [minLat, minLng, maxLat, maxLng] = bounds.split(',').map(Number);
+        conditions.push(`ST_Intersects(geom, ST_MakeEnvelope($${paramIndex}, $${paramIndex+1}, $${paramIndex+2}, $${paramIndex+3}, 4326))`);
+        params.push(minLng, minLat, maxLng, maxLat);
+        paramIndex += 4;
+      }
+
+      if (dasFilter) {
+        try {
+          const dasArray = JSON.parse(dasFilter);
+          if (dasArray && dasArray.length > 0) {
+            const dasPlaceholders = dasArray.map((_, i) => `$${paramIndex + i}`).join(',');
+            conditions.push(`ST_Intersects(geom, (SELECT ST_Union(geom_valid) FROM das_adm WHERE nama_das IN (${dasPlaceholders})))`);
+            params.push(...dasArray);
+            paramIndex += dasArray.length;
+          }
+        } catch (e) {
+          console.error('Error parsing dasFilter:', e);
+        }
+      }
+
+      if (conditions.length > 0) query += ' WHERE ' + conditions.join(' AND ');
+      query += ' GROUP BY kelas ORDER BY kelas';
+
+      const result = await pool.query(query, params);
+      res.json({ success: true, data: result.rows });
+    } catch (error) {
+      console.error(`Error fetching ${tableName} data:`, error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+});
+
+// Endpoint untuk fetch data KHDTK
+app.get('/api/khdtk/data', async (req, res) => {
+  try {
+    const { bounds, dasFilter } = req.query;
+    let query = `SELECT namobj, SUM(lsktap) as luas_total, MAX(jnskhdtk) as jnskhdtk FROM khdtk`;
+    const conditions = [];
+    const params = [];
+    let paramIndex = 1;
+
+    if (bounds) {
+      const [minLat, minLng, maxLat, maxLng] = bounds.split(',').map(Number);
+      conditions.push(`ST_Intersects(geom, ST_MakeEnvelope($${paramIndex}, $${paramIndex+1}, $${paramIndex+2}, $${paramIndex+3}, 4326))`);
+      params.push(minLng, minLat, maxLng, maxLat);
+      paramIndex += 4;
+    }
+
+    if (dasFilter) {
+      try {
+        const dasArray = JSON.parse(dasFilter);
+        if (dasArray && dasArray.length > 0) {
+          const dasPlaceholders = dasArray.map((_, i) => `$${paramIndex + i}`).join(',');
+          conditions.push(`ST_Intersects(geom, (SELECT ST_Union(geom_valid) FROM das_adm WHERE nama_das IN (${dasPlaceholders})))`);
+          params.push(...dasArray);
+          paramIndex += dasArray.length;
+        }
+      } catch (e) {
+        console.error('Error parsing dasFilter:', e);
+      }
+    }
+
+    if (conditions.length > 0) query += ' WHERE ' + conditions.join(' AND ');
+    query += ' GROUP BY namobj ORDER BY namobj';
+
+    const result = await pool.query(query, params);
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Error fetching khdtk data:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
